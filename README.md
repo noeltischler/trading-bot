@@ -102,6 +102,8 @@ Getestet für einen frischen Ubuntu-24.04-Server (z. B. Hetzner Cloud, kleinster
    bash /root/trading-bot/deploy/setup_server.sh
    ```
 3. Das Skript zeigt am Ende die Dashboard-Adresse (`https://…sslip.io`) und das Passwort.
+   Im Reiter **Chart** siehst du je Coin die Kerzen, den aktuellen Kurs, den Stop und
+   wo der Bot ein- und ausgestiegen ist.
 
 Bot und Dashboard laufen dann als Dienste, starten nach einem Neustart von selbst und
 nach Abstürzen nach 30 Sekunden neu. Übungskonto und Kursdaten werden beim ersten Mal
