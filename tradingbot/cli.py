@@ -1,4 +1,4 @@
-"""Kommandozeile:  python -m tradingbot fetch | backtest | run | status"""
+"""Kommandozeile:  python -m tradingbot fetch | backtest | optimize | run | status"""
 
 from __future__ import annotations
 
@@ -68,6 +68,33 @@ def cmd_backtest(args) -> int:
     return 0
 
 
+def cmd_optimize(args) -> int:
+    from tradingbot.optimize import best, evaluate
+
+    cfg = load_config(args.config)
+    store = CandleStore(cfg.database)
+    data = {coin: store.load(coin, cfg.timeframe) for coin in cfg.symbols}
+    store.close()
+    if any(len(df) < 500 for df in data.values()):
+        print("Zu wenige Kerzen. Erst 'fetch' ausführen.")
+        return 1
+
+    bp = BacktestParams(start_equity=cfg.start_equity, risk_pct=cfg.risk.risk_per_trade_pct, fee_pct=cfg.fee_pct)
+    print("Teste Kombinationen auf den ersten 2/3 der Daten, prüfe auf dem letzten 1/3 ...")
+    print("(Rendite = Summe über alle Coins, dauert 1 bis 3 Minuten)\n")
+    ranking = best(evaluate(data, cfg.timeframe, bp, cfg.strategy))
+    if not ranking:
+        print("Keine Kombination mit genug Trades gefunden.")
+        return 0
+
+    print(f"{'Kombination':<46}{'Training %':>11}{'Test %':>9}{'Test PF':>9}{'Trades':>8}{'Coins +':>9}")
+    for r in ranking:
+        pf = "-" if r.test_pf is None else r.test_pf
+        print(f"{r.combo.label():<46}{r.train_return:>11}{r.test_return:>9}{pf:>9}{r.test_trades:>8}{r.coins_positive:>7}/{len(data)}")
+    print("\nGut ist eine Kombination nur, wenn sie AUCH im Test im Plus ist (Test % > 0, PF > 1).")
+    return 0
+
+
 def cmd_run(args) -> int:
     from tradingbot.live import run_forever
     from tradingbot.paper import PaperAccount
@@ -108,11 +135,12 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_parser("fetch", help="Kursverlauf für den Backtest laden")
     bt = sub.add_parser("backtest", help="Strategie an gespeicherten Kursdaten testen")
     bt.add_argument("--csv", help="statt der Datenbank eine CSV mit time,open,high,low,close,volume nutzen")
+    sub.add_parser("optimize", help="Zeitrahmen, Stops und Trailing automatisch durchtesten")
     sub.add_parser("run", help="Bot dauerhaft auf dem Übungskonto laufen lassen")
     sub.add_parser("status", help="Kontostand, offene Positionen und letzte Trades anzeigen")
     args = parser.parse_args(argv)
 
-    commands = {"fetch": cmd_fetch, "backtest": cmd_backtest, "run": cmd_run, "status": cmd_status}
+    commands = {"fetch": cmd_fetch, "backtest": cmd_backtest, "optimize": cmd_optimize, "run": cmd_run, "status": cmd_status}
     try:
         return commands[args.command](args)
     except (FileNotFoundError, ValueError) as exc:

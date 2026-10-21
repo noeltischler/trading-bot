@@ -19,11 +19,13 @@ Börsenkonto und kein echtes Geld gebraucht.
 
 Funktioniert unter Windows, macOS und Linux.
 
-1. **Python 3.11 oder neuer** installieren (unter Windows „Add Python to PATH“ ankreuzen).
+1. **Python 3.13** installieren (unter Windows „Add Python to PATH“ ankreuzen).
+   Python 3.14/3.15 bitte nicht: Für einige Pakete gibt es dort noch keine fertigen Downloads.
+   Auf dem Mac danach im Ordner „Python 3.13“ einmal „Install Certificates.command“ öffnen.
 2. Den Code herunterladen (grüner Knopf „Code“ → „Download ZIP“) und entpacken.
 3. Im Ordner ein Terminal öffnen und ausführen:
    ```
-   python -m venv .venv
+   python3.13 -m venv .venv
    .venv\Scripts\activate          (Windows)
    source .venv/bin/activate       (macOS/Linux)
    pip install -r requirements.txt
@@ -33,8 +35,9 @@ Funktioniert unter Windows, macOS und Linux.
 ## Benutzung
 
 ```
-python -m tradingbot fetch      # Kursverlauf der letzten 90 Tage laden
+python -m tradingbot fetch      # Kursverlauf der letzten 365 Tage laden
 python -m tradingbot backtest   # Strategie an diesem Verlauf testen
+python -m tradingbot optimize   # Zeitrahmen, Stops und Trailing automatisch durchtesten
 python -m tradingbot run        # Bot dauerhaft laufen lassen (Strg+C beendet)
 python -m tradingbot status     # Kontostand, offene Positionen, letzte Trades
 ```
@@ -64,6 +67,17 @@ Rendite, maximaler Rückgang (Max DD) und Profitfaktor (PF, über 1 = profitabel
 
 Ein Backtest ist kein Versprechen für die Zukunft. Erst wenn die Strategie auf mehreren
 Coins und Zeiträumen stabil ist, lohnt sich der Schritt zu echtem Geld.
+
+## Optimieren
+
+`optimize` teilt den Kursverlauf jedes Coins: Auf den ersten zwei Dritteln sucht es
+die beste Kombination aus Zeitrahmen (15m/1h/4h), EMA-Paar, Stop und Trailing, auf
+dem letzten Drittel wird nur geprüft. Eine Kombination taugt erst, wenn sie **auch
+im Test** im Plus ist (Test % > 0, PF > 1) und das bei möglichst allen Coins.
+
+Um eine Kombination zu übernehmen, in `config.yaml` `timeframe`, `strategy.fast`,
+`strategy.slow`, `risk.stop_pct` und `risk.trailing_stop_pct` anpassen. Nach einer
+Änderung von `timeframe` einmal `fetch` ausführen.
 
 ## Andere Börse
 
