@@ -17,8 +17,8 @@ symbols:
 # Kerzen-Zeitrahmen: 1m, 5m, 15m, 30m, 1h, 4h, 1d
 timeframe: 15m
 
-# Wie viele Tage Kursverlauf 'fetch' für den Backtest lädt
-history_days: 90
+# Wie viele Tage Kursverlauf 'fetch' für Backtest und Optimierung lädt
+history_days: 365
 
 # Übungskonto
 start_equity: 10000          # Spielgeld in USD
