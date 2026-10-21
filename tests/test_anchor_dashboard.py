@@ -74,3 +74,51 @@ def test_only_days_with_trades_are_published(monkeypatch):
     assert urls["2026-10-01"] and urls["2026-10-02"]
     assert urls["2026-10-03"] is None and urls["2026-10-04"] is None
     assert len(published) == 2
+
+
+def test_chart_page_shows_candles_trades_stop_and_price():
+    import pandas as pd
+
+    from tradingbot.dashboard import render_chart
+    from tradingbot.storage import CandleStore
+
+    acc = PaperAccount(":memory:", fee_pct=0.0)
+    store = CandleStore(":memory:")
+    t0 = _ts("2026-10-20", 0)
+    store.upsert("BTC", "1h", pd.DataFrame({
+        "time": [t0 + i * 3600 for i in range(30)], "open": 100.0, "high": 102.0,
+        "low": 99.0, "close": 101.0, "volume": 1.0,
+    }))
+    acc.open(Position.open("BTC", LONG, 100.0, acc.balance, 1.0, 1.0, t0 + 3 * 3600))
+    acc.close("BTC", 101.5, "stop", when=t0 + 8 * 3600)
+    acc.open(Position.open("BTC", SHORT, 101.0, acc.balance, 1.0, 1.0, t0 + 20 * 3600))
+    acc.set_state("price:BTC", f"100.5:{t0 + 30 * 3600}")
+    page = render_chart(acc, store, ["BTC", "ETH"], "1h", "BTC", "1d", now=t0 + 30 * 3600)
+    assert page.count("<rect") == 24 + 0  # nur die Kerzen des letzten Tages
+    assert "m-long" in page and "m-short" in page and "m-exit" in page
+    assert 'class="stop"' in page and "price-l" in page
+    assert "coin=ETH" in page and "Short</b>" in page
+    empty = render_chart(acc, store, ["BTC", "ETH"], "1h", "ETH")
+    assert "noch keine Kurse" in empty
+
+
+def test_live_step_saves_candles_and_price_for_chart():
+    import pandas as pd
+
+    from tradingbot.config import Config
+    from tradingbot.live import step
+    from tradingbot.storage import CandleStore
+
+    class Market:
+        def closed_candles(self, symbol, timeframe, limit=400):
+            return pd.DataFrame({"time": [0, 900], "open": 1.0, "high": 1.0, "low": 1.0,
+                                 "close": 1.0, "volume": 1.0})
+
+        def last_price(self, symbol):
+            return 1.25
+
+    acc, store = PaperAccount(":memory:"), CandleStore(":memory:")
+    cfg = Config(symbols={"BTC": "BTC/USD"})
+    step(cfg, Market(), acc, store)
+    assert len(store.load("BTC", cfg.timeframe)) == 2
+    assert acc.get_state("price:BTC").startswith("1.25:")

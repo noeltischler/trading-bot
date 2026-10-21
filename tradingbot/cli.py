@@ -107,7 +107,7 @@ def cmd_run(args) -> int:
         handlers=[logging.StreamHandler(), logging.FileHandler("bot.log", encoding="utf-8")],
     )
     account = PaperAccount(cfg.paper_database, cfg.start_equity, cfg.fee_pct)
-    run_forever(cfg, _market(cfg.exchange), account)
+    run_forever(cfg, _market(cfg.exchange), account, chart=CandleStore(cfg.paper_database))
     return 0
 
 
@@ -133,7 +133,8 @@ def cmd_dashboard(args) -> int:
     from tradingbot.dashboard import serve
 
     cfg = load_config(args.config)
-    serve(cfg.paper_database, cfg.start_equity, cfg.fee_pct, port=args.port, host=args.host)
+    serve(cfg.paper_database, cfg.start_equity, cfg.fee_pct, port=args.port, host=args.host,
+          coins=list(cfg.symbols), timeframe=cfg.timeframe)
     return 0
 
 

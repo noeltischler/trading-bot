@@ -14,6 +14,7 @@ from tradingbot.anchor import anchor_due_days
 from tradingbot.config import Config
 from tradingbot.paper import PaperAccount
 from tradingbot.position import Position
+from tradingbot.storage import CandleStore
 from tradingbot.strategy import FLAT, LONG, signals
 
 log = logging.getLogger("tradingbot")
@@ -21,12 +22,16 @@ log = logging.getLogger("tradingbot")
 SIDE_NAME = {LONG: "LONG", -LONG: "SHORT"}
 
 
-def step(cfg: Config, market, account: PaperAccount) -> None:
-    """Ein Durchlauf über alle Coins. Verarbeitet jede Kerze genau einmal."""
+def step(cfg: Config, market, account: PaperAccount, chart: CandleStore | None = None) -> None:
+    """Ein Durchlauf über alle Coins. Verarbeitet jede Kerze genau einmal.
+    Mit chart werden Kerzen und aktueller Kurs fürs Dashboard gespeichert."""
     for coin, symbol in cfg.symbols.items():
         df = market.closed_candles(symbol, cfg.timeframe, limit=cfg.live_bars)
         if df.empty:
             continue
+        if chart is not None:
+            chart.upsert(coin, cfg.timeframe, df)
+            account.set_state(f"price:{coin}", f"{market.last_price(symbol)}:{int(time.time())}")
         last = df.iloc[-1]
         key = f"last_candle:{coin}"
         if account.get_state(key) == str(int(last.time)):
@@ -64,12 +69,13 @@ def step(cfg: Config, market, account: PaperAccount) -> None:
         account.set_state(key, str(int(last.time)))
 
 
-def run_forever(cfg: Config, market, account: PaperAccount, poll_seconds: int = 30) -> None:
+def run_forever(cfg: Config, market, account: PaperAccount, poll_seconds: int = 30,
+                chart: CandleStore | None = None) -> None:
     log.info("Bot gestartet: %s, %s, Coins: %s, Kontostand %.2f",
              market.id, cfg.timeframe, ", ".join(cfg.symbols), account.balance)
     while True:
         try:
-            step(cfg, market, account)
+            step(cfg, market, account, chart)
             anchor_due_days(account)
         except Exception:  # Netzwerkfehler usw. dürfen den Dauerbetrieb nicht beenden
             log.exception("Fehler im Durchlauf, neuer Versuch in %s s", poll_seconds)
