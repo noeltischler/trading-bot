@@ -1,0 +1,15 @@
+[Unit]
+Description=Trading-Bot (Übungskonto)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=bot
+WorkingDirectory=/opt/trading-bot
+EnvironmentFile=/etc/tradingbot.env
+ExecStart=/opt/trading-bot/.venv/bin/python -m tradingbot run
+Restart=always
+RestartSec=30
+
+[Install]
+WantedBy=multi-user.target

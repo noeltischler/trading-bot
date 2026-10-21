@@ -1,4 +1,4 @@
-"""Kommandozeile:  python -m tradingbot fetch | backtest | optimize | run | status"""
+"""Kommandozeile:  python -m tradingbot fetch | backtest | optimize | run | status | dashboard | verify"""
 
 from __future__ import annotations
 
@@ -129,6 +129,33 @@ def cmd_status(args) -> int:
     return 0
 
 
+def cmd_dashboard(args) -> int:
+    from tradingbot.dashboard import serve
+
+    cfg = load_config(args.config)
+    serve(cfg.paper_database, cfg.start_equity, cfg.fee_pct, port=args.port, host=args.host)
+    return 0
+
+
+def cmd_verify(args) -> int:
+    from tradingbot.anchor import verify
+    from tradingbot.paper import PaperAccount
+
+    cfg = load_config(args.config)
+    acc = PaperAccount(cfg.paper_database, cfg.start_equity, cfg.fee_pct)
+    anchors = acc.anchors()
+    problems = verify(acc)
+    if problems:
+        print("ACHTUNG, das Trade-Protokoll stimmt nicht mit den Nachweisen überein:")
+        for p in problems:
+            print(f"  {p}")
+        return 1
+    print(f"Alles in Ordnung: {len(anchors)} Tagesnachweise, {len(acc.trades())} Trades unverändert.")
+    for a in anchors[-5:]:
+        print(f"  {a['day']}  {a['hash'][:16]}…  {a['tx_url'] or 'nur lokal'}")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="tradingbot")
     parser.add_argument("--config", default="config.yaml")
@@ -140,9 +167,14 @@ def main(argv: list[str] | None = None) -> int:
     opt.add_argument("--fee", type=float, help="Kosten pro Seite in %% statt fee_pct aus config.yaml")
     sub.add_parser("run", help="Bot dauerhaft auf dem Übungskonto laufen lassen")
     sub.add_parser("status", help="Kontostand, offene Positionen und letzte Trades anzeigen")
+    db = sub.add_parser("dashboard", help="Dashboard als Webseite starten")
+    db.add_argument("--port", type=int, default=8080)
+    db.add_argument("--host", default="127.0.0.1", help="0.0.0.0 = auch aus dem Netzwerk erreichbar")
+    sub.add_parser("verify", help="Trade-Protokoll gegen die Tagesnachweise prüfen")
     args = parser.parse_args(argv)
 
-    commands = {"fetch": cmd_fetch, "backtest": cmd_backtest, "optimize": cmd_optimize, "run": cmd_run, "status": cmd_status}
+    commands = {"fetch": cmd_fetch, "backtest": cmd_backtest, "optimize": cmd_optimize, "run": cmd_run, "status": cmd_status,
+                "dashboard": cmd_dashboard, "verify": cmd_verify}
     try:
         return commands[args.command](args)
     except (FileNotFoundError, ValueError) as exc:

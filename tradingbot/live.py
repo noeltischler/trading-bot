@@ -10,6 +10,7 @@ from __future__ import annotations
 import logging
 import time
 
+from tradingbot.anchor import anchor_due_days
 from tradingbot.config import Config
 from tradingbot.paper import PaperAccount
 from tradingbot.position import Position
@@ -69,6 +70,7 @@ def run_forever(cfg: Config, market, account: PaperAccount, poll_seconds: int = 
     while True:
         try:
             step(cfg, market, account)
+            anchor_due_days(account)
         except Exception:  # Netzwerkfehler usw. dürfen den Dauerbetrieb nicht beenden
             log.exception("Fehler im Durchlauf, neuer Versuch in %s s", poll_seconds)
         time.sleep(poll_seconds)

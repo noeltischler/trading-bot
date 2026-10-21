@@ -12,7 +12,7 @@ Börsenkonto und kein echtes Geld gebraucht.
 | 1 | Grundgerüst, Kursdaten laden und speichern | ✅ |
 | 2 | Strategie (Long/Short), 0,5–1 % Risiko pro Trade, nachgezogener Stop-Loss, Backtest | ✅ |
 | 2b | Live-Übungskonto mit echten Kursen (`run`, `status`) | ✅ |
-| 3 | Dauerbetrieb auf einem Server, Dashboard, täglicher Blockchain-Nachweis | offen |
+| 3 | Dauerbetrieb auf einem Server, Dashboard, täglicher Blockchain-Nachweis | ✅ |
 | 4 | Lernen: Parameter anhand der Ergebnisse optimieren | später |
 
 ## Einrichtung
@@ -40,6 +40,8 @@ python -m tradingbot backtest   # Strategie an diesem Verlauf testen
 python -m tradingbot optimize   # Zeitrahmen, Stops und Trailing automatisch durchtesten
 python -m tradingbot run        # Bot dauerhaft laufen lassen (Strg+C beendet)
 python -m tradingbot status     # Kontostand, offene Positionen, letzte Trades
+python -m tradingbot dashboard  # Dashboard im Browser: http://localhost:8080
+python -m tradingbot verify     # Trade-Protokoll gegen die Tagesnachweise prüfen
 ```
 
 `run` prüft alle 30 Sekunden, ob eine neue Kerze abgeschlossen ist. Alles, was der
@@ -85,6 +87,43 @@ Um eine Kombination zu übernehmen, in `config.yaml` `timeframe`, `strategy.kind
 die passenden Werte (`fast`/`slow`, `lookback` oder `rsi_low`/`rsi_high`),
 `risk.stop_pct` und `risk.trailing_stop_pct` anpassen. Nach einer
 Änderung von `timeframe` einmal `fetch` ausführen.
+
+## Dauerbetrieb auf einem Server
+
+Getestet für einen frischen Ubuntu-24.04-Server (z. B. Hetzner Cloud, kleinster Typ).
+
+1. Auf dem Mac (Bot vorher mit Strg+C stoppen), IP-Adresse einsetzen:
+   ```
+   rsync -av --exclude .venv ~/Downloads/trading-bot-main/ root@IP-ADRESSE:/root/trading-bot/
+   ```
+2. Auf den Server einloggen und das Skript starten:
+   ```
+   ssh root@IP-ADRESSE
+   bash /root/trading-bot/deploy/setup_server.sh
+   ```
+3. Das Skript zeigt am Ende die Dashboard-Adresse (`https://…sslip.io`) und das Passwort.
+
+Bot und Dashboard laufen dann als Dienste, starten nach einem Neustart von selbst und
+nach Abstürzen nach 30 Sekunden neu. Übungskonto und Kursdaten werden beim ersten Mal
+vom Mac übernommen. Zum Aktualisieren den neuen Code genauso hochladen und das Skript
+erneut ausführen; Übungskonto, `config.yaml` und Passwort bleiben erhalten.
+
+## Blockchain-Nachweis
+
+Der Bot bildet jeden Tag einen SHA-256-Fingerabdruck über alle bisherigen Trades,
+verkettet mit dem Fingerabdruck des Vortags. `verify` erkennt, wenn ein Trade
+nachträglich verändert wurde. Optional kommt der Fingerabdruck an Tagen mit Trades
+auf die Ethereum-Blockchain (Testnetz Sepolia, kostenlos):
+
+1. Eine **neue, nur dafür genutzte** Wallet anlegen (z. B. in MetaMask) und über
+   einen Sepolia-Faucet etwas Test-ETH holen.
+2. `pip install web3` (auf dem Server: `/opt/trading-bot/.venv/bin/pip install web3`).
+3. In `/etc/tradingbot.env` (Server) bzw. als Umgebungsvariablen (Mac) eintragen:
+   ```
+   ANCHOR_RPC_URL=https://ethereum-sepolia-rpc.publicnode.com
+   ANCHOR_PRIVATE_KEY=0x…
+   ```
+   und den Bot neu starten. Das Dashboard verlinkt dann jede Transaktion.
 
 ## Andere Börse
 
