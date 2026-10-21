@@ -1,0 +1,14 @@
+[Unit]
+Description=Trading-Bot Dashboard
+After=network-online.target
+
+[Service]
+User=bot
+WorkingDirectory=/opt/trading-bot
+EnvironmentFile=/etc/tradingbot.env
+ExecStart=/opt/trading-bot/.venv/bin/python -m tradingbot dashboard --port 8080
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

@@ -30,8 +30,9 @@ def test_evaluate_runs_and_ranks_by_training_only():
     o = np.r_[c[0], c[:-1]]
     df = pd.DataFrame({"time": np.arange(n) * 900, "open": o, "high": np.maximum(o, c) * 1.002,
                        "low": np.minimum(o, c) * 0.998, "close": c, "volume": 1.0})
-    grid = {"timeframe": ["15m", "1h"], "ema": [(9, 21)], "stop_pct": [1.0, 2.0], "trail_pct": [1.0]}
+    grid = {"timeframe": ["15m", "1h"], "strategy": [{"kind": "ema", "fast": 9, "slow": 21}, {"kind": "breakout", "lookback": 20}],
+            "stop_pct": [1.0, 2.0], "trail_pct": [1.0]}
     results = evaluate({"A": df, "B": df}, "15m", BacktestParams(), StrategyParams(), grid=grid)
-    assert len(results) == 4
+    assert len(results) == 8
     ranked = best(results, min_trades=0)
     assert [r.train_return for r in ranked] == sorted((r.train_return for r in ranked), reverse=True)

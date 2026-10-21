@@ -65,3 +65,22 @@ def test_fees_reduce_result():
     fee = run(_frame(closes), BacktestParams(fee_pct=0.1), SMALL)
     assert fee.equity.iloc[-1] < no_fee.equity.iloc[-1]
     assert fee.summary()["trades"] == no_fee.summary()["trades"]
+
+
+def test_breakout_long_on_new_high_in_uptrend():
+    sp = StrategyParams(kind="breakout", lookback=5, trend=10)
+    closes = list(np.linspace(100, 110, 30)) + [110] * 6 + [115]
+    sig = signals(_frame(closes), sp)
+    assert sig.iloc[-1] == LONG
+
+
+def test_meanrev_long_on_dip_in_uptrend_once():
+    sp = StrategyParams(kind="meanrev", trend=50, rsi_low=40)
+    closes = list(np.linspace(100, 150, 80)) + [148, 145, 142, 140, 139, 138]
+    sig = signals(_frame(closes), sp)
+    assert (sig == LONG).sum() == 1
+
+
+def test_unknown_strategy_rejected():
+    with pytest.raises(ValueError):
+        StrategyParams(kind="magic")

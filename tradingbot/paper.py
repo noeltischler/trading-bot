@@ -33,6 +33,12 @@ CREATE TABLE IF NOT EXISTS trades (
     reason     TEXT NOT NULL,
     balance    REAL NOT NULL
 );
+CREATE TABLE IF NOT EXISTS anchors (
+    day     TEXT PRIMARY KEY,   -- YYYY-MM-DD (UTC), umfasst alle Trades bis Tagesende
+    hash    TEXT NOT NULL,      -- SHA-256 über Trades + vorherigen Hash
+    prev    TEXT NOT NULL,
+    tx_url  TEXT                -- Link zur Blockchain-Transaktion, falls veröffentlicht
+);
 CREATE TABLE IF NOT EXISTS state (
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL
@@ -103,6 +109,14 @@ class PaperAccount:
         cur = self.conn.execute("SELECT * FROM trades ORDER BY id")
         cols = [c[0] for c in cur.description]
         return [dict(zip(cols, row)) for row in cur.fetchall()]
+
+    def anchors(self) -> list[dict]:
+        cur = self.conn.execute("SELECT day, hash, prev, tx_url FROM anchors ORDER BY day")
+        return [dict(zip(("day", "hash", "prev", "tx_url"), row)) for row in cur.fetchall()]
+
+    def add_anchor(self, day: str, digest: str, prev: str, tx_url: str | None) -> None:
+        with self.conn:
+            self.conn.execute("INSERT INTO anchors VALUES (?, ?, ?, ?)", (day, digest, prev, tx_url))
 
     def get_state(self, key: str) -> str | None:
         row = self.conn.execute("SELECT value FROM state WHERE key = ?", (key,)).fetchone()
