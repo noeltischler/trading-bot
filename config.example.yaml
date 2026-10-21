@@ -1,0 +1,26 @@
+# Kopiere diese Datei nach config.yaml und passe sie an.
+
+# Coins, die der Bot beobachtet. Links der Name im Bot, rechts der Name beim Broker.
+# Die Broker-Namen findest du mit:  python -m tradingbot check
+symbols:
+  BTC: BTCUSD
+  ETH: ETHUSD
+  SOL: SOLUSD
+
+# Kerzen-Zeitrahmen: M1, M5, M15, M30, H1, H4, D1
+timeframe: M15
+
+# Wie viele Kerzen beim Abruf geholt werden (pro Coin)
+history_bars: 5000
+
+# Speicherort der Kursdaten
+database: data/market.db
+
+# Risikoregeln (werden ab Schritt 2 genutzt)
+risk:
+  risk_per_trade_pct: 0.75     # 0,5 bis 1 % des Kontos pro Trade
+  trailing_stop_pct: 1.0       # Abstand des nachgezogenen Stop-Loss in %
+  max_open_positions: 3
+
+# Sicherheitsschalter: Der Bot verweigert den Start auf Echtgeldkonten.
+demo_only: true
