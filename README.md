@@ -1,46 +1,49 @@
-# KI-Trading-Bot (Krypto, MetaTrader 5, Paper-Trading)
+# KI-Trading-Bot (Krypto, Paper-Trading)
 
 Ein Bot, der BTC, ETH, SOL und weitere große Coins selbstständig analysiert und
-über ein **MetaTrader-5-Demokonto** handelt. Echtes Geld wird nicht eingesetzt:
-Der Bot verweigert den Start, wenn er mit einem Echtgeldkonto verbunden ist.
+auf einem **eigenen Übungskonto** handelt. Die Kurse kommen live von einer echten
+Börse (Standard: Kraken), Orders werden aber nur simuliert. Es wird kein
+Börsenkonto und kein echtes Geld gebraucht.
 
 ## Fahrplan
 
 | Schritt | Inhalt | Stand |
 |---|---|---|
-| 1 | Grundgerüst, MT5-Anbindung, Kursdaten speichern | ✅ |
+| 1 | Grundgerüst, Kursdaten laden und speichern | ✅ |
 | 2 | Strategie (Long/Short), 0,5–1 % Risiko pro Trade, nachgezogener Stop-Loss, Backtest | ✅ |
-| 3 | Dauerbetrieb auf Windows-VPS, Trade-Protokoll, täglicher Blockchain-Hash | offen |
+| 2b | Live-Übungskonto mit echten Kursen (`run`, `status`) | ✅ |
+| 3 | Dauerbetrieb auf einem Server, Dashboard, täglicher Blockchain-Nachweis | offen |
 | 4 | Lernen: Parameter anhand der Ergebnisse optimieren | später |
 
-## Einrichtung (Windows)
+## Einrichtung
 
-1. **MetaTrader 5** installieren und bei einem Broker, der Krypto-CFDs anbietet,
-   ein **Demokonto** eröffnen. In MT5 unter *Extras → Optionen → Expert Advisors*
-   „Algorithmischen Handel erlauben“ aktivieren.
-2. **Python 3.11 oder neuer** installieren (bei der Installation „Add to PATH“ ankreuzen).
-3. In diesem Ordner eine Eingabeaufforderung öffnen und ausführen:
+Funktioniert unter Windows, macOS und Linux.
+
+1. **Python 3.11 oder neuer** installieren (unter Windows „Add Python to PATH“ ankreuzen).
+2. Den Code herunterladen (grüner Knopf „Code“ → „Download ZIP“) und entpacken.
+3. Im Ordner ein Terminal öffnen und ausführen:
    ```
    python -m venv .venv
-   .venv\Scripts\activate
+   .venv\Scripts\activate          (Windows)
+   source .venv/bin/activate       (macOS/Linux)
    pip install -r requirements.txt
-   copy .env.example .env
-   copy config.example.yaml config.yaml
+   copy config.example.yaml config.yaml   (macOS/Linux: cp statt copy)
    ```
-4. In `.env` Login, Passwort und Server des Demokontos eintragen.
 
 ## Benutzung
 
 ```
-python -m tradingbot check   # Verbindung prüfen, Krypto-Symbole des Brokers anzeigen
-python -m tradingbot fetch   # Kursdaten aller Coins abrufen und in data/market.db speichern
-python -m tradingbot backtest   # Strategie an den gespeicherten Kursdaten testen
+python -m tradingbot fetch      # Kursverlauf der letzten 90 Tage laden
+python -m tradingbot backtest   # Strategie an diesem Verlauf testen
+python -m tradingbot run        # Bot dauerhaft laufen lassen (Strg+C beendet)
+python -m tradingbot status     # Kontostand, offene Positionen, letzte Trades
 ```
 
-Die Symbolnamen heißen bei jedem Broker etwas anders (z. B. `BTCUSD`, `BTCUSD.a`).
-`check` zeigt dir die richtigen Namen, die du dann unter `symbols` in `config.yaml` einträgst.
+`run` prüft alle 30 Sekunden, ob eine neue Kerze abgeschlossen ist. Alles, was der
+Bot tut, steht im Terminal und in `bot.log`. Übungskonto und Trades liegen in
+`data/paper.db` und bleiben bei einem Neustart erhalten.
 
-## Strategie (Schritt 2)
+## Strategie
 
 **Einstieg:** Trendfolge auf Kerzenschluss.
 - *Long*, wenn die schnelle EMA (20) über die langsame EMA (50) kreuzt, der Kurs über
@@ -54,17 +57,23 @@ Die Symbolnamen heißen bei jedem Broker etwas anders (z. B. `BTCUSD`, `BTCUSD.a
 - Nach jeder Kerze wird der Stop `trailing_stop_pct` hinter dem besten Kurs nachgezogen,
   aber nie zurückgesetzt. Bei Shorts entsprechend nach unten.
 
-**Backtest:** Einstieg zur Eröffnung der nächsten Kerze, Stop-Ausführung bei Kurslücken
-zum schlechteren Kurs, Kosten pro Seite (`fee_pct`). Ausgabe: Anzahl Trades, Trefferquote,
+**Backtest und Live-Betrieb nutzen dieselben Regeln** (`tradingbot/position.py`):
+Einstieg zur Eröffnung der nächsten Kerze, Stop-Ausführung bei Kurslücken zum
+schlechteren Kurs, Kosten pro Seite (`fee_pct`). Kennzahlen: Trades, Trefferquote,
 Rendite, maximaler Rückgang (Max DD) und Profitfaktor (PF, über 1 = profitabel).
 
 Ein Backtest ist kein Versprechen für die Zukunft. Erst wenn die Strategie auf mehreren
-Coins und Zeiträumen stabil ist, lohnt sich der Dauerbetrieb auf dem Demokonto.
+Coins und Zeiträumen stabil ist, lohnt sich der Schritt zu echtem Geld.
+
+## Andere Börse
+
+In `config.yaml` `exchange` ändern (z. B. `bitvavo`, `coinbase`, `kraken`) und die
+Symbole anpassen. Möglich sind alle Börsen, die [ccxt](https://github.com/ccxt/ccxt)
+unterstützt. Manche Börsen liefern nur einen kurzen Kursverlauf; `fetch` zeigt an,
+ab wann Daten vorhanden sind.
 
 ## Tests
 
 ```
 pytest
 ```
-
-Die Tests laufen auch ohne MetaTrader 5 (z. B. unter Linux oder macOS).

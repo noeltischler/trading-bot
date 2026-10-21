@@ -1,57 +1,49 @@
-"""Kommandozeile:  python -m tradingbot check | fetch | backtest"""
+"""Kommandozeile:  python -m tradingbot fetch | backtest | run | status"""
 
 from __future__ import annotations
 
 import argparse
+import logging
 import sys
+import time
 from datetime import datetime, timezone
 
 import pandas as pd
 
 from tradingbot.backtest import BacktestParams, run as run_backtest
-from tradingbot.config import load_config, load_credentials
-from tradingbot.mt5_client import MT5Client, MT5Error
+from tradingbot.config import load_config
 from tradingbot.storage import CandleStore
 
 
-def cmd_check(args) -> int:
-    cfg = load_config(args.config)
-    client = MT5Client(load_credentials(), demo_only=cfg.demo_only)
-    account = client.connect()
-    try:
-        kind = "DEMO" if account.is_demo else "ECHTGELD"
-        print(f"Verbunden: Konto {account.login} @ {account.server} ({kind})")
-        print(f"Kontostand: {account.balance:.2f} {account.currency}")
-        print("\nKrypto-Symbole bei diesem Broker:")
-        for name in client.find_crypto_symbols():
-            print(f"  {name}")
-        print("\nTrage die passenden Namen unter 'symbols' in config.yaml ein.")
-    finally:
-        client.shutdown()
-    return 0
+def _market(exchange_id: str):
+    from tradingbot.market import Market
+
+    return Market(exchange_id)
+
+
+def _fmt(ts: int) -> str:
+    return datetime.fromtimestamp(int(ts), timezone.utc).strftime("%Y-%m-%d %H:%M")
 
 
 def cmd_fetch(args) -> int:
     cfg = load_config(args.config)
-    client = MT5Client(load_credentials(), demo_only=cfg.demo_only)
-    client.connect()
+    market = _market(cfg.history_exchange)
     store = CandleStore(cfg.database)
+    since_ms = int((time.time() - cfg.history_days * 86400) * 1000)
     try:
         for coin, symbol in cfg.symbols.items():
-            df = client.candles(symbol, cfg.timeframe, cfg.history_bars)
+            df = market.candles(symbol, cfg.timeframe, since_ms=since_ms)
             n = store.upsert(coin, cfg.timeframe, df)
-            first = datetime.fromtimestamp(int(df.time.iloc[0]), timezone.utc)
-            last = datetime.fromtimestamp(int(df.time.iloc[-1]), timezone.utc)
-            print(f"{coin} ({symbol}, {cfg.timeframe}): {n} Kerzen, {first:%Y-%m-%d %H:%M} bis {last:%Y-%m-%d %H:%M} UTC")
+            print(f"{coin} ({symbol} @ {market.id}, {cfg.timeframe}): {n} Kerzen, {_fmt(df.time.iloc[0])} bis {_fmt(df.time.iloc[-1])} UTC")
     finally:
         store.close()
-        client.shutdown()
     return 0
 
 
 def cmd_backtest(args) -> int:
     cfg = load_config(args.config)
     bp = BacktestParams(
+        start_equity=cfg.start_equity,
         risk_pct=cfg.risk.risk_per_trade_pct,
         stop_pct=cfg.risk.stop_pct,
         trail_pct=cfg.risk.trailing_stop_pct,
@@ -70,9 +62,42 @@ def cmd_backtest(args) -> int:
         if len(df) < 250:
             print(f"{name:<8} zu wenige Kerzen ({len(df)}). Erst 'fetch' ausführen.")
             continue
-        s = run_backtest(df, bp).summary()
+        s = run_backtest(df, bp, cfg.strategy).summary()
         pf = "-" if s["profit_factor"] is None else s["profit_factor"]
         print(f"{name:<8}{s['trades']:>8}{s['win_rate_pct']:>11}{s['return_pct']:>11}{s['max_drawdown_pct']:>10}{pf:>7}")
+    return 0
+
+
+def cmd_run(args) -> int:
+    from tradingbot.live import run_forever
+    from tradingbot.paper import PaperAccount
+
+    cfg = load_config(args.config)
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(message)s",
+        handlers=[logging.StreamHandler(), logging.FileHandler("bot.log", encoding="utf-8")],
+    )
+    account = PaperAccount(cfg.paper_database, cfg.start_equity, cfg.fee_pct)
+    run_forever(cfg, _market(cfg.exchange), account)
+    return 0
+
+
+def cmd_status(args) -> int:
+    from tradingbot.paper import PaperAccount
+    from tradingbot.strategy import LONG
+
+    cfg = load_config(args.config)
+    acc = PaperAccount(cfg.paper_database, cfg.start_equity, cfg.fee_pct)
+    trades = acc.trades()
+    change = 100 * (acc.balance / acc.start_equity - 1)
+    print(f"Kontostand: {acc.balance:.2f} USD ({change:+.2f} %), {len(trades)} abgeschlossene Trades")
+    for coin, p in acc.positions().items():
+        side = "LONG" if p.side == LONG else "SHORT"
+        print(f"  offen: {coin} {side} seit {_fmt(p.opened_at)}, Einstieg {p.entry:.2f}, Stop {p.stop:.2f}")
+    for t in trades[-10:]:
+        side = "LONG" if t["side"] == LONG else "SHORT"
+        print(f"  {_fmt(t['closed_at'])} {t['coin']:<5}{side:<6} {t['entry']:.2f} → {t['exit']:.2f}  {t['pnl']:+.2f} ({t['reason']})")
     return 0
 
 
@@ -80,14 +105,24 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="tradingbot")
     parser.add_argument("--config", default="config.yaml")
     sub = parser.add_subparsers(dest="command", required=True)
-    sub.add_parser("check", help="Verbindung zu MT5 prüfen und Krypto-Symbole auflisten")
-    sub.add_parser("fetch", help="Kursdaten aller Coins abrufen und speichern")
+    sub.add_parser("fetch", help="Kursverlauf für den Backtest laden")
     bt = sub.add_parser("backtest", help="Strategie an gespeicherten Kursdaten testen")
     bt.add_argument("--csv", help="statt der Datenbank eine CSV mit time,open,high,low,close,volume nutzen")
+    sub.add_parser("run", help="Bot dauerhaft auf dem Übungskonto laufen lassen")
+    sub.add_parser("status", help="Kontostand, offene Positionen und letzte Trades anzeigen")
     args = parser.parse_args(argv)
 
+    commands = {"fetch": cmd_fetch, "backtest": cmd_backtest, "run": cmd_run, "status": cmd_status}
     try:
-        return {"check": cmd_check, "fetch": cmd_fetch, "backtest": cmd_backtest}[args.command](args)
-    except (MT5Error, FileNotFoundError, ValueError) as exc:
+        return commands[args.command](args)
+    except (FileNotFoundError, ValueError) as exc:
         print(f"Fehler: {exc}", file=sys.stderr)
         return 1
+    except Exception as exc:
+        if type(exc).__module__.startswith("ccxt"):
+            print(f"Fehler bei der Börse: {exc}", file=sys.stderr)
+            return 1
+        raise
+    except KeyboardInterrupt:
+        print("Beendet.")
+        return 0
