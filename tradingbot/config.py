@@ -14,6 +14,7 @@ TIMEFRAMES = ("M1", "M5", "M15", "M30", "H1", "H4", "D1")
 @dataclass
 class RiskConfig:
     risk_per_trade_pct: float = 0.75
+    stop_pct: float = 1.0
     trailing_stop_pct: float = 1.0
     max_open_positions: int = 3
 
@@ -33,6 +34,7 @@ class Config:
     history_bars: int = 5000
     database: str = "data/market.db"
     demo_only: bool = True
+    fee_pct: float = 0.05
     risk: RiskConfig = field(default_factory=RiskConfig)
 
 
@@ -62,6 +64,7 @@ def load_config(path: str | Path = "config.yaml") -> Config:
         history_bars=int(raw.get("history_bars", 5000)),
         database=str(raw.get("database", "data/market.db")),
         demo_only=bool(raw.get("demo_only", True)),
+        fee_pct=float(raw.get("fee_pct", 0.05)),
         risk=risk,
     )
 
