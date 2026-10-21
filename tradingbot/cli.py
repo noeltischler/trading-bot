@@ -56,7 +56,7 @@ def cmd_backtest(args) -> int:
         sources = {coin: store.load(coin, cfg.timeframe) for coin in cfg.symbols}
         store.close()
 
-    print(f"Risiko {bp.risk_pct} %/Trade, Stop {bp.stop_pct} %, Trailing {bp.trail_pct} %, Kosten {bp.fee_pct} %/Seite\n")
+    print(f"Strategie {cfg.strategy.label()}, Risiko {bp.risk_pct} %/Trade, Stop {bp.stop_pct} %, Trailing {bp.trail_pct} %, Kosten {bp.fee_pct} %/Seite\n")
     print(f"{'Coin':<8}{'Trades':>8}{'Treffer %':>11}{'Rendite %':>11}{'Max DD %':>10}{'PF':>7}")
     for name, df in sources.items():
         if len(df) < 250:
@@ -79,18 +79,19 @@ def cmd_optimize(args) -> int:
         print("Zu wenige Kerzen. Erst 'fetch' ausführen.")
         return 1
 
-    bp = BacktestParams(start_equity=cfg.start_equity, risk_pct=cfg.risk.risk_per_trade_pct, fee_pct=cfg.fee_pct)
-    print("Teste Kombinationen auf den ersten 2/3 der Daten, prüfe auf dem letzten 1/3 ...")
+    fee = cfg.fee_pct if args.fee is None else args.fee
+    bp = BacktestParams(start_equity=cfg.start_equity, risk_pct=cfg.risk.risk_per_trade_pct, fee_pct=fee)
+    print(f"Kosten {fee} % pro Seite. Teste Kombinationen auf den ersten 2/3 der Daten, prüfe auf dem letzten 1/3 ...")
     print("(Rendite = Summe über alle Coins, dauert 1 bis 3 Minuten)\n")
     ranking = best(evaluate(data, cfg.timeframe, bp, cfg.strategy))
     if not ranking:
         print("Keine Kombination mit genug Trades gefunden.")
         return 0
 
-    print(f"{'Kombination':<46}{'Training %':>11}{'Test %':>9}{'Test PF':>9}{'Trades':>8}{'Coins +':>9}")
+    print(f"{'Kombination':<48}{'Training %':>11}{'Test %':>9}{'Test PF':>9}{'Trades':>8}{'Coins +':>9}")
     for r in ranking:
         pf = "-" if r.test_pf is None else r.test_pf
-        print(f"{r.combo.label():<46}{r.train_return:>11}{r.test_return:>9}{pf:>9}{r.test_trades:>8}{r.coins_positive:>7}/{len(data)}")
+        print(f"{r.combo.label():<48}{r.train_return:>11}{r.test_return:>9}{pf:>9}{r.test_trades:>8}{r.coins_positive:>7}/{len(data)}")
     print("\nGut ist eine Kombination nur, wenn sie AUCH im Test im Plus ist (Test % > 0, PF > 1).")
     return 0
 
@@ -135,7 +136,8 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_parser("fetch", help="Kursverlauf für den Backtest laden")
     bt = sub.add_parser("backtest", help="Strategie an gespeicherten Kursdaten testen")
     bt.add_argument("--csv", help="statt der Datenbank eine CSV mit time,open,high,low,close,volume nutzen")
-    sub.add_parser("optimize", help="Zeitrahmen, Stops und Trailing automatisch durchtesten")
+    opt = sub.add_parser("optimize", help="Strategien, Zeitrahmen, Stops und Trailing automatisch durchtesten")
+    opt.add_argument("--fee", type=float, help="Kosten pro Seite in %% statt fee_pct aus config.yaml")
     sub.add_parser("run", help="Bot dauerhaft auf dem Übungskonto laufen lassen")
     sub.add_parser("status", help="Kontostand, offene Positionen und letzte Trades anzeigen")
     args = parser.parse_args(argv)

@@ -48,11 +48,14 @@ Bot tut, steht im Terminal und in `bot.log`. Übungskonto und Trades liegen in
 
 ## Strategie
 
-**Einstieg:** Trendfolge auf Kerzenschluss.
-- *Long*, wenn die schnelle EMA (20) über die langsame EMA (50) kreuzt, der Kurs über
-  der Trend-EMA (200) liegt und der RSI unter 70 ist.
-- *Short* spiegelverkehrt (Kreuzung nach unten, Kurs unter EMA 200, RSI über 30).
-- Ein Gegensignal schließt die offene Position und dreht sie.
+**Einstieg** (auf Kerzenschluss, wählbar mit `strategy.kind`):
+- `ema` (Trendfolge): *Long*, wenn die schnelle EMA über die langsame kreuzt, der Kurs
+  über der Trend-EMA (200) liegt und der RSI unter 70 ist.
+- `breakout` (Ausbruch): *Long*, wenn der Schlusskurs das Hoch der letzten `lookback`
+  Kerzen überschreitet und der Kurs über der Trend-EMA liegt.
+- `meanrev` (Gegenbewegung): *Long*, wenn der RSI unter `rsi_low` fällt, während der
+  Kurs über der Trend-EMA liegt (Rücksetzer im Aufwärtstrend).
+- *Short* jeweils spiegelverkehrt. Ein Gegensignal schließt die offene Position und dreht sie.
 
 **Risiko:**
 - Anfangs-Stop-Loss `stop_pct` vom Einstieg entfernt.
@@ -71,12 +74,16 @@ Coins und Zeiträumen stabil ist, lohnt sich der Schritt zu echtem Geld.
 ## Optimieren
 
 `optimize` teilt den Kursverlauf jedes Coins: Auf den ersten zwei Dritteln sucht es
-die beste Kombination aus Zeitrahmen (15m/1h/4h), EMA-Paar, Stop und Trailing, auf
+die beste Kombination aus Zeitrahmen (15m/1h/4h), Strategie, Stop und Trailing, auf
 dem letzten Drittel wird nur geprüft. Eine Kombination taugt erst, wenn sie **auch
 im Test** im Plus ist (Test % > 0, PF > 1) und das bei möglichst allen Coins.
 
-Um eine Kombination zu übernehmen, in `config.yaml` `timeframe`, `strategy.fast`,
-`strategy.slow`, `risk.stop_pct` und `risk.trailing_stop_pct` anpassen. Nach einer
+Mit `--fee 0.04` lässt sich prüfen, wie die Ergebnisse bei niedrigeren Gebühren
+aussehen (z. B. Futures statt Spot).
+
+Um eine Kombination zu übernehmen, in `config.yaml` `timeframe`, `strategy.kind` und
+die passenden Werte (`fast`/`slow`, `lookback` oder `rsi_low`/`rsi_high`),
+`risk.stop_pct` und `risk.trailing_stop_pct` anpassen. Nach einer
 Änderung von `timeframe` einmal `fetch` ausführen.
 
 ## Andere Börse

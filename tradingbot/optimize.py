@@ -34,13 +34,16 @@ def resample(df: pd.DataFrame, minutes: int) -> pd.DataFrame:
 @dataclass(frozen=True)
 class Combo:
     timeframe: str
-    fast: int
-    slow: int
+    strategy: tuple  # Felder für StrategyParams, z. B. (("kind", "ema"), ("fast", 9), ("slow", 21))
     stop_pct: float
     trail_pct: float
 
+    def params(self, base: StrategyParams) -> StrategyParams:
+        return replace(base, **dict(self.strategy))
+
     def label(self) -> str:
-        return f"{self.timeframe:>4} EMA {self.fast}/{self.slow}  Stop {self.stop_pct} %  Trail {self.trail_pct} %"
+        name = StrategyParams(**dict(self.strategy)).label()
+        return f"{self.timeframe:>4} {name:<13} Stop {self.stop_pct:g} %  Trail {self.trail_pct:g} %"
 
 
 @dataclass
@@ -55,7 +58,14 @@ class ComboResult:
 
 GRID = {
     "timeframe": ["15m", "1h", "4h"],
-    "ema": [(9, 21), (20, 50)],
+    "strategy": [
+        {"kind": "ema", "fast": 9, "slow": 21},
+        {"kind": "ema", "fast": 20, "slow": 50},
+        {"kind": "breakout", "lookback": 20},
+        {"kind": "breakout", "lookback": 55},
+        {"kind": "meanrev", "rsi_low": 30, "rsi_high": 70},
+        {"kind": "meanrev", "rsi_low": 25, "rsi_high": 75},
+    ],
     "stop_pct": [1.0, 2.0, 3.0],
     "trail_pct": [1.0, 2.0, 3.0],
 }
@@ -65,9 +75,9 @@ def combos(base_timeframe: str, grid: dict = GRID) -> list[Combo]:
     base = TIMEFRAME_MINUTES[base_timeframe]
     tfs = [tf for tf in grid["timeframe"] if TIMEFRAME_MINUTES[tf] >= base]
     return [
-        Combo(tf, fast, slow, stop, trail)
-        for tf, (fast, slow), stop, trail in itertools.product(
-            tfs, grid["ema"], grid["stop_pct"], grid["trail_pct"]
+        Combo(tf, tuple(sorted(strat.items())), stop, trail)
+        for tf, strat, stop, trail in itertools.product(
+            tfs, grid["strategy"], grid["stop_pct"], grid["trail_pct"]
         )
     ]
 
@@ -94,7 +104,7 @@ def evaluate(
     results = []
     for combo in combos(base_timeframe, grid):
         bp = replace(base_bp, stop_pct=combo.stop_pct, trail_pct=combo.trail_pct)
-        sp = replace(base_sp, fast=combo.fast, slow=combo.slow)
+        sp = combo.params(base_sp)
         train_ret = test_ret = 0.0
         wins = losses = 0.0
         trades = positive = 0
