@@ -1,5 +1,4 @@
-MetaTrader5>=5.0.45; sys_platform == "win32"
+ccxt>=4.4
 pandas>=2.2
 PyYAML>=6.0
-python-dotenv>=1.0
 pytest>=8.0

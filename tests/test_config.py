@@ -11,18 +11,20 @@ def _write(tmp_path, text):
 
 def test_example_config_loads():
     cfg = load_config("config.example.yaml")
-    assert cfg.symbols["BTC"] == "BTCUSD"
-    assert cfg.demo_only is True
+    assert cfg.symbols["BTC"] == "BTC/USD"
+    assert cfg.exchange == "kraken"
+    assert cfg.history_exchange == "coinbaseexchange"
+    assert cfg.strategy.fast == 20
     assert 0 < cfg.risk.risk_per_trade_pct <= 1
 
 
 def test_rejects_risk_above_one_percent(tmp_path):
-    p = _write(tmp_path, "symbols: {BTC: BTCUSD}\nrisk: {risk_per_trade_pct: 2}\n")
+    p = _write(tmp_path, "symbols: {BTC: BTC/USD}\nrisk: {risk_per_trade_pct: 2}\n")
     with pytest.raises(ValueError):
         load_config(p)
 
 
 def test_rejects_unknown_timeframe(tmp_path):
-    p = _write(tmp_path, "symbols: {BTC: BTCUSD}\ntimeframe: M7\n")
+    p = _write(tmp_path, "symbols: {BTC: BTC/USD}\ntimeframe: 7m\n")
     with pytest.raises(ValueError):
         load_config(p)

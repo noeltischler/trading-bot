@@ -15,8 +15,8 @@ from dataclasses import dataclass, field
 
 import pandas as pd
 
-from tradingbot.risk import initial_stop, position_size, trail_stop
-from tradingbot.strategy import FLAT, LONG, StrategyParams, signals
+from tradingbot.position import Position
+from tradingbot.strategy import FLAT, StrategyParams, signals
 
 
 @dataclass
@@ -47,19 +47,22 @@ class Result:
     params: BacktestParams = field(repr=False)
 
     def summary(self) -> dict:
-        n = len(self.trades)
-        wins = [t.pnl for t in self.trades if t.pnl > 0]
-        losses = [t.pnl for t in self.trades if t.pnl <= 0]
-        eq = self.equity
-        dd = (eq / eq.cummax() - 1).min() if len(eq) else 0.0
-        return {
-            "trades": n,
-            "win_rate_pct": round(100 * len(wins) / n, 1) if n else 0.0,
-            "return_pct": round(100 * (eq.iloc[-1] / self.params.start_equity - 1), 2) if len(eq) else 0.0,
-            "max_drawdown_pct": round(100 * dd, 2),
-            "profit_factor": round(sum(wins) / -sum(losses), 2) if losses and sum(losses) < 0 else None,
-            "avg_trade": round(sum(t.pnl for t in self.trades) / n, 2) if n else 0.0,
-        }
+        return summarize([t.pnl for t in self.trades], self.equity, self.params.start_equity)
+
+
+def summarize(pnls: list[float], equity: pd.Series, start_equity: float) -> dict:
+    n = len(pnls)
+    wins = [p for p in pnls if p > 0]
+    losses = [p for p in pnls if p <= 0]
+    dd = (equity / equity.cummax() - 1).min() if len(equity) else 0.0
+    return {
+        "trades": n,
+        "win_rate_pct": round(100 * len(wins) / n, 1) if n else 0.0,
+        "return_pct": round(100 * (equity.iloc[-1] / start_equity - 1), 2) if len(equity) else 0.0,
+        "max_drawdown_pct": round(100 * dd, 2),
+        "profit_factor": round(sum(wins) / -sum(losses), 2) if losses and sum(losses) < 0 else None,
+        "avg_trade": round(sum(pnls) / n, 2) if n else 0.0,
+    }
 
 
 def run(
@@ -75,49 +78,32 @@ def run(
     o, h, l, c, t = (df[k].to_numpy() for k in ("open", "high", "low", "close", "time"))
 
     equity = bp.start_equity
-    fee = bp.fee_pct / 100
     trades: list[Trade] = []
     curve = []
-    pos = None  # dict(side, entry, qty, stop, best, time)
+    pos: Position | None = None
 
     def close(i: int, price: float, reason: str) -> None:
         nonlocal equity, pos
-        side, qty = pos["side"], pos["qty"]
-        gross = (price - pos["entry"]) * qty * side
-        cost = (pos["entry"] + price) * qty * fee
-        pnl = gross - cost
+        pnl = pos.pnl(price, bp.fee_pct)
         equity += pnl
-        trades.append(Trade(side, int(pos["time"]), pos["entry"], int(t[i]), price, qty, pnl, reason))
+        trades.append(Trade(pos.side, int(pos.opened_at), pos.entry, int(t[i]), price, pos.qty, pnl, reason))
         pos = None
-
-    def open_(i: int, side: int) -> None:
-        nonlocal pos
-        entry = o[i]
-        stop = initial_stop(entry, side, bp.stop_pct)
-        qty = position_size(equity, bp.risk_pct, entry, stop)
-        if qty > 0:
-            pos = dict(side=side, entry=entry, qty=qty, stop=stop, best=entry, time=t[i])
 
     for i in range(1, len(df)):
         prev = sig[i - 1]
         # Signal der Vorkerze zur Eröffnung dieser Kerze umsetzen
         if prev != FLAT:
-            if pos and pos["side"] != prev:
+            if pos and pos.side != prev:
                 close(i, o[i], "signal")
             if pos is None:
-                open_(i, prev)
+                pos = Position.open("", int(prev), o[i], equity, bp.risk_pct, bp.stop_pct, int(t[i]))
 
         if pos:
-            side, stop = pos["side"], pos["stop"]
-            if side == LONG and l[i] <= stop:
-                close(i, min(o[i], stop), "stop")
-            elif side != LONG and h[i] >= stop:
-                close(i, max(o[i], stop), "stop")
-            else:
-                pos["best"] = max(pos["best"], h[i]) if side == LONG else min(pos["best"], l[i])
-                pos["stop"] = trail_stop(stop, side, pos["best"], bp.trail_pct)
+            hit = pos.on_candle(o[i], h[i], l[i], bp.trail_pct)
+            if hit is not None:
+                close(i, hit, "stop")
 
-        open_pnl = (c[i] - pos["entry"]) * pos["qty"] * pos["side"] if pos else 0.0
+        open_pnl = (c[i] - pos.entry) * pos.qty * pos.side if pos else 0.0
         curve.append((t[i], equity + open_pnl))
 
     if pos:
