@@ -19,8 +19,12 @@ database: data/market.db
 # Risikoregeln (werden ab Schritt 2 genutzt)
 risk:
   risk_per_trade_pct: 0.75     # 0,5 bis 1 % des Kontos pro Trade
+  stop_pct: 1.0                # Anfangs-Stop-Loss: Abstand zum Einstieg in %
   trailing_stop_pct: 1.0       # Abstand des nachgezogenen Stop-Loss in %
   max_open_positions: 3
+
+# Kosten pro Kauf bzw. Verkauf in % (Spread + Gebühr), für den Backtest
+fee_pct: 0.05
 
 # Sicherheitsschalter: Der Bot verweigert den Start auf Echtgeldkonten.
 demo_only: true
