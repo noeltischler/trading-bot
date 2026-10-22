@@ -31,13 +31,14 @@ risk:
   trailing_stop_pct: 1.0     # Abstand des nachgezogenen Stop-Loss in %
   max_open_positions: 3
 
-# Strategie. kind: ema (Trendfolge), breakout (Ausbruch) oder meanrev (Gegenbewegung).
+# Strategie. kind: ema (Trendfolge), breakout (Ausbruch), meanrev (Gegenbewegung)
+# oder wedge (Keil-/Dreieck-Ausbruch).
 # Welche Werte gut sind, zeigt 'python -m tradingbot optimize'.
 strategy:
   kind: ema
   fast: 20          # ema: schnelle EMA
   slow: 50          # ema: langsame EMA
-  lookback: 20      # breakout: Hoch/Tief der letzten N Kerzen
+  lookback: 20      # breakout: Hoch/Tief der letzten N Kerzen; wedge: Musterlänge (z. B. 40)
   rsi_low: 30       # meanrev: Kauf, wenn RSI darunter fällt
   rsi_high: 70      # meanrev: Short, wenn RSI darüber steigt
   trend: 200        # alle: Trendfilter-EMA

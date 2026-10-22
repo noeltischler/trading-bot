@@ -65,6 +65,8 @@ GRID = {
         {"kind": "breakout", "lookback": 55},
         {"kind": "meanrev", "rsi_low": 30, "rsi_high": 70},
         {"kind": "meanrev", "rsi_low": 25, "rsi_high": 75},
+        {"kind": "wedge", "lookback": 40},
+        {"kind": "wedge", "lookback": 80},
     ],
     "stop_pct": [1.0, 2.0, 3.0],
     "trail_pct": [1.0, 2.0, 3.0],
