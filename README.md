@@ -57,6 +57,10 @@ Bot tut, steht im Terminal und in `bot.log`. Übungskonto und Trades liegen in
   Kerzen überschreitet und der Kurs über der Trend-EMA liegt.
 - `meanrev` (Gegenbewegung): *Long*, wenn der RSI unter `rsi_low` fällt, während der
   Kurs über der Trend-EMA liegt (Rücksetzer im Aufwärtstrend).
+- `wedge` (Keil-/Dreieck-Ausbruch): Durch die Hoch- und Tiefpunkte der letzten `lookback`
+  Kerzen wird je eine Trendlinie gelegt. Laufen sie zusammen, gibt es *Long*, wenn der
+  Schlusskurs über die fallende obere Linie ausbricht (fallender Keil, absteigendes oder
+  symmetrisches Dreieck), und *Short* beim Bruch der steigenden unteren Linie.
 - *Short* jeweils spiegelverkehrt. Ein Gegensignal schließt die offene Position und dreht sie.
 
 **Risiko:**

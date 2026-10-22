@@ -36,3 +36,37 @@ def test_evaluate_runs_and_ranks_by_training_only():
     assert len(results) == 8
     ranked = best(results, min_trades=0)
     assert [r.train_return for r in ranked] == sorted((r.train_return for r in ranked), reverse=True)
+
+
+def _wedge_frame(breakout: bool):
+    """Fallender Keil: Hochs fallen steiler als Tiefs, danach (optional) Ausbruch nach oben."""
+    closes = []
+    for k in range(10):  # 10 Schwünge à 6 Kerzen
+        top, bottom = 120 - 2.0 * k, 100 - 0.8 * k
+        closes += list(np.linspace(bottom, top, 4)) + list(np.linspace(top, bottom, 3))[1:]
+    if breakout:
+        closes += [closes[-1] + 3, closes[-1] + 20, closes[-1] + 24]
+    c = np.asarray(closes)
+    o = np.r_[c[0], c[:-1]]
+    return pd.DataFrame({"time": np.arange(len(c)) * 900, "open": o, "high": np.maximum(o, c),
+                         "low": np.minimum(o, c), "close": c, "volume": 1.0})
+
+
+def test_wedge_long_on_breakout_of_falling_wedge():
+    from tradingbot.strategy import LONG, SHORT, signals
+
+    sp = StrategyParams(kind="wedge", lookback=40)
+    sig = signals(_wedge_frame(breakout=True), sp)
+    assert (sig == SHORT).sum() == 0
+    assert sig.iloc[-2] == LONG  # die große Ausbruchskerze
+    assert (signals(_wedge_frame(breakout=False), sp) == LONG).sum() == 0
+
+
+def test_wedge_uses_no_future_data():
+    from tradingbot.strategy import signals
+
+    df = _wedge_frame(breakout=True)
+    sp = StrategyParams(kind="wedge", lookback=40)
+    full = signals(df, sp)
+    for end in range(45, len(df)):
+        assert signals(df.iloc[:end], sp).iloc[-1] == full.iloc[end - 1]
