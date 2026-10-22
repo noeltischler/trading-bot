@@ -30,9 +30,17 @@ risk:
   stop_pct: 1.0              # Anfangs-Stop-Loss: Abstand zum Einstieg in %
   trailing_stop_pct: 1.0     # Abstand des nachgezogenen Stop-Loss in %
   max_open_positions: 3
+  # Sicherheitsregeln (0 = aus)
+  stop_atr: 0                # Stop in ATR statt in % (z. B. 2), passt sich der Schwankung an
+  trail_atr: 0               # Trailing in ATR statt in % (z. B. 3)
+  take_profit_r: 0           # Gewinnziel: so viel mal der Stop-Abstand (z. B. 2)
+  max_position_pct: 25       # Positionswert höchstens 25 % vom Konto
+  daily_loss_limit_pct: 3    # nach 3 % Tagesverlust keine neuen Trades bis Mitternacht (UTC)
+  drawdown_brake_pct: 10     # 10 % unter Höchststand: Risiko pro Trade halbieren
 
-# Strategie. kind: ema (Trendfolge), breakout (Ausbruch), meanrev (Gegenbewegung)
-# oder wedge (Keil-/Dreieck-Ausbruch).
+# Strategie. kind: ema (Trendfolge), breakout (Ausbruch), meanrev (Gegenbewegung),
+# wedge (Keil-/Dreieck-Ausbruch), fvg (Fair Value Gap), supertrend, fib (Fibonacci
+# Golden Pocket) oder sweep (Liquiditäts-Sweep).
 # Welche Werte gut sind, zeigt 'python -m tradingbot optimize'.
 strategy:
   kind: ema
@@ -41,6 +49,9 @@ strategy:
   lookback: 20      # breakout: Hoch/Tief der letzten N Kerzen; wedge: Musterlänge (z. B. 40)
   rsi_low: 30       # meanrev: Kauf, wenn RSI darunter fällt
   rsi_high: 70      # meanrev: Short, wenn RSI darüber steigt
+  fvg_min_atr: 0.5  # fvg: Mindestgröße der Lücke in ATR
+  st_factor: 3      # supertrend: Bandabstand in ATR
+  use_trend: true   # fvg, fib, sweep: nur in Trendrichtung handeln
   trend: 200        # alle: Trendfilter-EMA
   allow_short: true
 

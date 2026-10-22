@@ -65,7 +65,7 @@ def equity_svg(points: list[tuple[int, float]], width: int = 640, height: int = 
 TIMEFRAME_SECONDS = {"1m": 60, "5m": 300, "15m": 900, "30m": 1800, "1h": 3600, "4h": 14400, "1d": 86400}
 RANGES = {"6h": ("6 Std", 6 * 3600), "1d": ("1 Tag", 86400), "1w": ("1 Woche", 7 * 86400),
           "1m": ("1 Monat", 30 * 86400), "3m": ("3 Monate", 91 * 86400), "all": ("Alles", None)}
-REASONS = {"stop": "Stop", "signal": "Gegensignal"}
+REASONS = {"stop": "Stop", "signal": "Gegensignal", "target": "Gewinnziel"}
 
 _CSS = """
 :root { --bg:#f6f7f9; --card:#fff; --text:#1a1d23; --muted:#6b7280; --line:#e5e7eb; --up:#15803d; --down:#b91c1c; --accent:#2563eb; }

@@ -61,6 +61,16 @@ Bot tut, steht im Terminal und in `bot.log`. Übungskonto und Trades liegen in
   Kerzen wird je eine Trendlinie gelegt. Laufen sie zusammen, gibt es *Long*, wenn der
   Schlusskurs über die fallende obere Linie ausbricht (fallender Keil, absteigendes oder
   symmetrisches Dreieck), und *Short* beim Bruch der steigenden unteren Linie.
+- `fvg` (Fair Value Gap, Smart Money Concepts): Eine Lücke entsteht, wenn das Tief einer
+  Kerze über dem Hoch der vorletzten liegt (mindestens `fvg_min_atr` × ATR). *Long*, wenn
+  der Kurs innerhalb von `lookback` Kerzen in die Lücke zurückläuft und über ihr schließt.
+- `supertrend` (Trendfolge): *Long*, wenn der Supertrend (ATR `st_period`, Faktor
+  `st_factor`) auf Aufwärtstrend dreht.
+- `fib` (Fibonacci „Golden Pocket“): Rücksetzer der letzten Aufwärtsbewegung (`lookback`
+  Kerzen) bis unter 61,8 %, Schluss aber über 78,6 % → *Long*.
+- `sweep` (Liquiditäts-Sweep, „Turtle Soup“): Kerze sticht unter das Tief der letzten
+  `lookback` Kerzen und schließt wieder darüber → *Long*.
+- `fvg`, `fib` und `sweep` handeln mit `use_trend: true` nur mit dem Trend (Trend-EMA).
 - *Short* jeweils spiegelverkehrt. Ein Gegensignal schließt die offene Position und dreht sie.
 
 **Risiko:**
@@ -68,6 +78,20 @@ Bot tut, steht im Terminal und in `bot.log`. Übungskonto und Trades liegen in
 - Positionsgröße so, dass der Stop genau `risk_per_trade_pct` (0,5–1 %) des Kontos kostet.
 - Nach jeder Kerze wird der Stop `trailing_stop_pct` hinter dem besten Kurs nachgezogen,
   aber nie zurückgesetzt. Bei Shorts entsprechend nach unten.
+
+**Sicherheitsregeln** (unter `risk:`, 0 = aus):
+- `stop_atr` / `trail_atr`: Stop und Trailing in ATR statt in %. Der Abstand passt sich
+  der Schwankung des Coins an (DOGE schwankt stärker als BTC).
+- `take_profit_r`: Gewinnziel als Vielfaches des Stop-Abstands (2 = doppelt so weit).
+- `max_position_pct`: Positionswert höchstens so viel % vom Konto, auch bei engem Stop.
+- `daily_loss_limit_pct`: Nach so viel % Verlust an einem Tag keine neuen Trades bis
+  Mitternacht (UTC). Offene Positionen laufen mit ihrem Stop weiter.
+- `drawdown_brake_pct`: Liegt das Konto so viel % unter seinem Höchststand, wird das
+  Risiko pro Trade halbiert, bis es sich erholt hat.
+
+`backtest` zeigt zusätzlich das **Kelly-Kriterium** (Kelly %): den rechnerisch besten
+Einsatz aus Trefferquote und Gewinn/Verlust-Verhältnis. Negativ heißt: kein Vorteil.
+Positiv: höchstens ein Viertel davon als `risk_per_trade_pct` nehmen.
 
 **Backtest und Live-Betrieb nutzen dieselben Regeln** (`tradingbot/position.py`):
 Einstieg zur Eröffnung der nächsten Kerze, Stop-Ausführung bei Kurslücken zum
@@ -86,12 +110,14 @@ im Test** im Plus ist (Test % > 0, PF > 1) und das bei möglichst allen Coins.
 
 Mit `--fee 0.04` lässt sich prüfen, wie die Ergebnisse bei niedrigeren Gebühren
 aussehen (z. B. Futures statt Spot). `--kind wedge` testet nur eine Strategie,
+`--exits` probiert zusätzlich Gewinnziele (2R, 3R) und ATR-Stops aus,
 `--per-day 1` zeigt nur Kombinationen mit mindestens einem Trade pro Tag (alle Coins
 zusammen). Mehr Coins unter `symbols` bedeuten bei gleicher Strategie mehr Trades.
 
 Um eine Kombination zu übernehmen, in `config.yaml` `timeframe`, `strategy.kind` und
-die passenden Werte (`fast`/`slow`, `lookback` oder `rsi_low`/`rsi_high`),
-`risk.stop_pct` und `risk.trailing_stop_pct` anpassen. Nach einer
+die passenden Werte (`fast`/`slow`, `lookback`, `rsi_low`/`rsi_high`, `fvg_min_atr`
+oder `st_factor`), `risk.stop_pct` und `risk.trailing_stop_pct` (bzw. `stop_atr`,
+`trail_atr`, `take_profit_r`) anpassen. Nach einer
 Änderung von `timeframe` einmal `fetch` ausführen.
 
 ## Dauerbetrieb auf einem Server
