@@ -122,3 +122,66 @@ def test_live_step_saves_candles_and_price_for_chart():
     step(cfg, Market(), acc, store)
     assert len(store.load("BTC", cfg.timeframe)) == 2
     assert acc.get_state("price:BTC").startswith("1.25:")
+
+
+def _account_many_trades():
+    acc = PaperAccount(":memory:", fee_pct=0.0)
+    now = _ts("2026-10-22", 12)
+    spec = [("BTC", LONG, 102.0, 1), ("ETH", SHORT, 103.0, 3), ("BTC", SHORT, 97.0, 20), ("SOL", LONG, 99.0, 200)]
+    for coin, side, exit_, days_ago in spec:
+        t = now - days_ago * 86400
+        acc.open(Position.open(coin, side, 100.0, acc.balance, 1.0, 5.0, t - 3600))
+        acc.close(coin, exit_, "signal", when=t)
+    return acc, now
+
+
+def test_pnl_buckets_per_day_and_month():
+    from tradingbot.dashboard import pnl_buckets
+
+    acc, now = _account_many_trades()
+    days = pnl_buckets(acc.trades(), now - 7 * 86400, now, "day")
+    assert len(days) == 8 and sum(n for _, _, n in days) == 2
+    months = pnl_buckets(acc.trades(), now - 365 * 86400, now, "month")
+    assert len(months) in (12, 13) and sum(n for _, _, n in months) == 4
+    assert round(sum(v for _, v, _ in months), 6) == round(sum(t["pnl"] for t in acc.trades()), 6)
+
+
+def test_overview_periods_and_prices_keep_thousands_separator():
+    acc, now = _account_many_trades()
+    page = render(acc, period="1w", now=now)
+    for name in ("Tag", "Woche", "Monat", "3 Monate", "Jahr"):
+        assert f'<div class="l">{name}</div>' in page
+    assert "Ergebnis je Tag" in page and "svg" in page and "Profitfaktor" in page
+    assert "100,00 → 102,00" in page  # Kurse im deutschen Format, nicht 100,00 → 102,00 kaputt ersetzt
+
+
+def test_trades_page_filters_and_csv():
+    from tradingbot.dashboard import filter_trades, render_trades, trades_csv
+
+    acc, now = _account_many_trades()
+    assert len(filter_trades(acc.trades(), coin="BTC")) == 2
+    assert len(filter_trades(acc.trades(), side="short")) == 2
+    assert len(filter_trades(acc.trades(), result="loss", now=now)) == 2
+    assert len(filter_trades(acc.trades(), period="1m", now=now)) == 3
+    page = render_trades(acc, coin="BTC", now=now)
+    assert page.count("/chart?trade=") == 2 and "Gegensignal" in page
+    csv = trades_csv(acc.trades())
+    assert csv.splitlines()[0].startswith("Nr;") and len(csv.splitlines()) == 5 and "102" in csv
+
+
+def test_chart_zooms_to_single_trade():
+    import pandas as pd
+
+    from tradingbot.dashboard import render_chart
+    from tradingbot.storage import CandleStore
+
+    acc, now = _account_many_trades()
+    store = CandleStore(":memory:")
+    store.upsert("BTC", "1h", pd.DataFrame({
+        "time": [now - 30 * 86400 + i * 3600 for i in range(30 * 24)], "open": 100.0, "high": 101.0,
+        "low": 99.0, "close": 100.5, "volume": 1.0,
+    }))
+    btc = [t for t in acc.trades() if t["coin"] == "BTC"]
+    page = render_chart(acc, store, ["BTC", "ETH"], "1h", trade_id=btc[0]["id"], now=now)
+    assert f"Trade #{btc[0]['id']}" in page and "Zurück zum ganzen Chart" in page and "class='hl'" in page
+    assert page.count("<rect") < 200  # nur ein Ausschnitt, nicht 30 Tage
