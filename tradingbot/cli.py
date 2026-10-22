@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+import math
 import sys
 import time
 from datetime import datetime, timezone
@@ -89,16 +90,23 @@ def cmd_optimize(args) -> int:
         if not grid["strategy"]:
             print(f"Unbekannte Strategie '{args.kind}'.")
             return 1
+    # Länge des Testteils (letztes Drittel) in Tagen, für "Trades pro Tag"
+    test_days = max(min((df.time.iloc[-1] - df.time.iloc[0]) / 86400 for df in data.values()) * 0.33, 1.0)
     # Mit --kind alle Varianten zeigen, auch solche mit wenigen Trades
-    ranking = best(evaluate(data, cfg.timeframe, bp, cfg.strategy, grid=grid), min_trades=0 if args.kind else 15)
+    min_trades = 0 if args.kind else 15
+    if args.per_day:
+        min_trades = max(min_trades, math.ceil(args.per_day * test_days))
+        print(f"Nur Kombinationen mit mindestens {args.per_day:g} Trades pro Tag (alle Coins zusammen).\n")
+    ranking = best(evaluate(data, cfg.timeframe, bp, cfg.strategy, grid=grid), min_trades=min_trades)
     if not ranking:
         print("Keine Kombination mit genug Trades gefunden.")
         return 0
 
-    print(f"{'Kombination':<48}{'Training %':>11}{'Test %':>9}{'Test PF':>9}{'Trades':>8}{'Coins +':>9}")
+    print(f"{'Kombination':<48}{'Training %':>11}{'Test %':>9}{'Test PF':>9}{'Trades':>8}{'pro Tag':>9}{'Coins +':>9}")
     for r in ranking:
         pf = "-" if r.test_pf is None else r.test_pf
-        print(f"{r.combo.label():<48}{r.train_return:>11}{r.test_return:>9}{pf:>9}{r.test_trades:>8}{r.coins_positive:>7}/{len(data)}")
+        print(f"{r.combo.label():<48}{r.train_return:>11}{r.test_return:>9}{pf:>9}{r.test_trades:>8}"
+              f"{r.test_trades / test_days:>9.1f}{r.coins_positive:>7}/{len(data)}")
     print("\nGut ist eine Kombination nur, wenn sie AUCH im Test im Plus ist (Test % > 0, PF > 1).")
     return 0
 
@@ -174,6 +182,7 @@ def main(argv: list[str] | None = None) -> int:
     opt = sub.add_parser("optimize", help="Strategien, Zeitrahmen, Stops und Trailing automatisch durchtesten")
     opt.add_argument("--fee", type=float, help="Kosten pro Seite in %% statt fee_pct aus config.yaml")
     opt.add_argument("--kind", help="nur eine Strategie testen: ema, breakout, meanrev oder wedge")
+    opt.add_argument("--per-day", type=float, help="nur Kombinationen mit mindestens so vielen Trades pro Tag zeigen")
     sub.add_parser("run", help="Bot dauerhaft auf dem Übungskonto laufen lassen")
     sub.add_parser("status", help="Kontostand, offene Positionen und letzte Trades anzeigen")
     db = sub.add_parser("dashboard", help="Dashboard als Webseite starten")

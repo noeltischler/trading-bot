@@ -85,7 +85,9 @@ dem letzten Drittel wird nur geprüft. Eine Kombination taugt erst, wenn sie **a
 im Test** im Plus ist (Test % > 0, PF > 1) und das bei möglichst allen Coins.
 
 Mit `--fee 0.04` lässt sich prüfen, wie die Ergebnisse bei niedrigeren Gebühren
-aussehen (z. B. Futures statt Spot).
+aussehen (z. B. Futures statt Spot). `--kind wedge` testet nur eine Strategie,
+`--per-day 1` zeigt nur Kombinationen mit mindestens einem Trade pro Tag (alle Coins
+zusammen). Mehr Coins unter `symbols` bedeuten bei gleicher Strategie mehr Trades.
 
 Um eine Kombination zu übernehmen, in `config.yaml` `timeframe`, `strategy.kind` und
 die passenden Werte (`fast`/`slow`, `lookback` oder `rsi_low`/`rsi_high`),
