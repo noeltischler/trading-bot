@@ -69,7 +69,7 @@ def cmd_backtest(args) -> int:
 
 
 def cmd_optimize(args) -> int:
-    from tradingbot.optimize import best, evaluate
+    from tradingbot.optimize import GRID, best, evaluate
 
     cfg = load_config(args.config)
     store = CandleStore(cfg.database)
@@ -83,7 +83,14 @@ def cmd_optimize(args) -> int:
     bp = BacktestParams(start_equity=cfg.start_equity, risk_pct=cfg.risk.risk_per_trade_pct, fee_pct=fee)
     print(f"Kosten {fee} % pro Seite. Teste Kombinationen auf den ersten 2/3 der Daten, prüfe auf dem letzten 1/3 ...")
     print("(Rendite = Summe über alle Coins, dauert 1 bis 3 Minuten)\n")
-    ranking = best(evaluate(data, cfg.timeframe, bp, cfg.strategy))
+    grid = GRID
+    if args.kind:
+        grid = {**GRID, "strategy": [s for s in GRID["strategy"] if s["kind"] == args.kind]}
+        if not grid["strategy"]:
+            print(f"Unbekannte Strategie '{args.kind}'.")
+            return 1
+    # Mit --kind alle Varianten zeigen, auch solche mit wenigen Trades
+    ranking = best(evaluate(data, cfg.timeframe, bp, cfg.strategy, grid=grid), min_trades=0 if args.kind else 15)
     if not ranking:
         print("Keine Kombination mit genug Trades gefunden.")
         return 0
@@ -166,6 +173,7 @@ def main(argv: list[str] | None = None) -> int:
     bt.add_argument("--csv", help="statt der Datenbank eine CSV mit time,open,high,low,close,volume nutzen")
     opt = sub.add_parser("optimize", help="Strategien, Zeitrahmen, Stops und Trailing automatisch durchtesten")
     opt.add_argument("--fee", type=float, help="Kosten pro Seite in %% statt fee_pct aus config.yaml")
+    opt.add_argument("--kind", help="nur eine Strategie testen: ema, breakout, meanrev oder wedge")
     sub.add_parser("run", help="Bot dauerhaft auf dem Übungskonto laufen lassen")
     sub.add_parser("status", help="Kontostand, offene Positionen und letzte Trades anzeigen")
     db = sub.add_parser("dashboard", help="Dashboard als Webseite starten")
