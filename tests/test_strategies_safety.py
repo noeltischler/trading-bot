@@ -130,3 +130,15 @@ def test_account_marks_peak_and_day_start():
     peak, day_start = account_marks(acc, now=90_500)
     assert peak == pytest.approx(10_100)
     assert day_start == pytest.approx(10_100)   # Stand nach dem Trade vom Vortag
+
+
+def test_combined_strategies_first_one_wins():
+    from tradingbot.strategy import label
+
+    df = _random_frame(500)
+    a = StrategyParams(kind="sweep", lookback=20, trend=50)
+    b = StrategyParams(kind="supertrend")
+    sa, sb, both = signals(df, a), signals(df, b), signals(df, (a, b))
+    assert ((both != 0) == ((sa != 0) | (sb != 0))).all()
+    assert (both[sa != 0] == sa[sa != 0]).all()
+    assert label((a, b)) == "Sweep 20 + Supertrend 3"

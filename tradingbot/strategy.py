@@ -26,6 +26,9 @@
               Tief der letzten lookback Kerzen sticht, aber wieder darüber schließt
               (Stopps abgeholt, Ausbruch gescheitert). Mit Trend-EMA-Filter, wenn use_trend.
 
+Mehrere Strategien lassen sich kombinieren (Liste statt einzelner Parameter): Es zählt
+das Signal der ersten Strategie, die auf dieser Kerze eines hat.
+
 Short jeweils spiegelverkehrt. Signale sind Ereignisse (nur auf der Kerze, auf der
 die Bedingung neu eintritt). Das Signal gilt beim Schluss einer Kerze; gehandelt
 wird zur Eröffnung der nächsten.
@@ -213,7 +216,18 @@ def fib_pullbacks(df: pd.DataFrame, lookback: int) -> tuple[np.ndarray, np.ndarr
     return long_, short
 
 
-def signals(df: pd.DataFrame, p: StrategyParams | None = None) -> pd.Series:
+def label(p: "StrategyParams | tuple | list") -> str:
+    """Name einer Strategie oder einer Kombination, z. B. 'Keil 80 + Sweep 50'."""
+    return " + ".join(x.label() for x in p) if isinstance(p, (list, tuple)) else p.label()
+
+
+def signals(df: pd.DataFrame, p: "StrategyParams | tuple | list | None" = None) -> pd.Series:
+    if isinstance(p, (list, tuple)):
+        out = pd.Series(FLAT, index=df.index)
+        for one in reversed(p):  # die erste Strategie in der Liste hat Vorrang
+            sig = signals(df, one)
+            out = sig.where(sig != FLAT, out)
+        return out
     p = p or StrategyParams()
     close = df["close"]
     trend = ema(close, p.trend)

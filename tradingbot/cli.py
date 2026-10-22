@@ -14,6 +14,7 @@ import pandas as pd
 from tradingbot.backtest import run as run_backtest
 from tradingbot.config import load_config
 from tradingbot.storage import CandleStore
+from tradingbot.strategy import StrategyParams, label as strategy_label
 
 
 def _market(exchange_id: str):
@@ -51,7 +52,7 @@ def cmd_backtest(args) -> int:
         sources = {coin: store.load(coin, cfg.timeframe) for coin in cfg.symbols}
         store.close()
 
-    print(f"Strategie {cfg.strategy.label()}, Risiko {bp.risk_pct} %/Trade, Stop {bp.stop_pct} %, Trailing {bp.trail_pct} %, Kosten {bp.fee_pct} %/Seite\n")
+    print(f"Strategie {strategy_label(cfg.strategy)}, Risiko {bp.risk_pct} %/Trade, Stop {bp.stop_pct} %, Trailing {bp.trail_pct} %, Kosten {bp.fee_pct} %/Seite\n")
     print(f"{'Coin':<8}{'Trades':>8}{'Treffer %':>11}{'Rendite %':>11}{'Max DD %':>10}{'PF':>7}{'Kelly %':>9}")
     for name, df in sources.items():
         if len(df) < 250:
@@ -96,7 +97,8 @@ def cmd_optimize(args) -> int:
     if args.per_day:
         min_trades = max(min_trades, math.ceil(args.per_day * test_days))
         print(f"Nur Kombinationen mit mindestens {args.per_day:g} Trades pro Tag (alle Coins zusammen).\n")
-    ranking = best(evaluate(data, cfg.timeframe, bp, cfg.strategy, grid=grid), min_trades=min_trades)
+    base_sp = cfg.strategy if isinstance(cfg.strategy, StrategyParams) else StrategyParams()
+    ranking = best(evaluate(data, cfg.timeframe, bp, base_sp, grid=grid), min_trades=min_trades)
     if not ranking:
         print("Keine Kombination mit genug Trades gefunden.")
         return 0

@@ -40,7 +40,8 @@ class Config:
     start_equity: float = 10_000.0
     fee_pct: float = 0.1
     risk: RiskConfig = field(default_factory=RiskConfig)
-    strategy: StrategyParams = field(default_factory=StrategyParams)
+    # Eine Strategie oder mehrere zusammen (Tupel), siehe strategy.signals
+    strategy: StrategyParams | tuple[StrategyParams, ...] = field(default_factory=StrategyParams)
 
     def backtest_params(self, fee_pct: float | None = None):
         """Risikoregeln aus der Config als BacktestParams (gleich für Backtest und live)."""
@@ -54,6 +55,15 @@ class Config:
             max_position_pct=r.max_position_pct, daily_loss_limit_pct=r.daily_loss_limit_pct,
             drawdown_brake_pct=r.drawdown_brake_pct,
         )
+
+
+def _strategy(raw) -> StrategyParams | tuple[StrategyParams, ...]:
+    """strategy: in config.yaml ist ein Block oder eine Liste von Blöcken."""
+    if isinstance(raw, list):
+        if not raw:
+            raise ValueError("Die Liste unter 'strategy' ist leer.")
+        return tuple(StrategyParams(**(x or {})) for x in raw)
+    return StrategyParams(**(raw or {}))
 
 
 def load_config(path: str | Path = "config.yaml") -> Config:
@@ -88,5 +98,5 @@ def load_config(path: str | Path = "config.yaml") -> Config:
         start_equity=float(raw.get("start_equity", 10_000.0)),
         fee_pct=float(raw.get("fee_pct", 0.1)),
         risk=risk,
-        strategy=StrategyParams(**(raw.get("strategy") or {})),
+        strategy=_strategy(raw.get("strategy")),
     )

@@ -71,6 +71,9 @@ Bot tut, steht im Terminal und in `bot.log`. Übungskonto und Trades liegen in
 - `sweep` (Liquiditäts-Sweep, „Turtle Soup“): Kerze sticht unter das Tief der letzten
   `lookback` Kerzen und schließt wieder darüber → *Long*.
 - `fvg`, `fib` und `sweep` handeln mit `use_trend: true` nur mit dem Trend (Trend-EMA).
+- Mehrere Strategien zusammen: unter `strategy:` statt eines Blocks eine Liste von
+  Blöcken eintragen (siehe `config.empfohlen.yaml`). Es zählt das Signal der ersten
+  Strategie, die eines hat.
 - *Short* jeweils spiegelverkehrt. Ein Gegensignal schließt die offene Position und dreht sie.
 
 **Risiko:**

@@ -28,3 +28,12 @@ def test_rejects_unknown_timeframe(tmp_path):
     p = _write(tmp_path, "symbols: {BTC: BTC/USD}\ntimeframe: 7m\n")
     with pytest.raises(ValueError):
         load_config(p)
+
+
+def test_strategy_list_loads_as_combination(tmp_path):
+    p = _write(tmp_path, "symbols: {BTC: BTC/USD}\nstrategy:\n  - {kind: wedge, lookback: 80}\n  - {kind: sweep, lookback: 50}\n"
+                         "risk: {stop_atr: 2, trail_atr: 3, daily_loss_limit_pct: 3}\n")
+    cfg = load_config(p)
+    assert [s.kind for s in cfg.strategy] == ["wedge", "sweep"]
+    bp = cfg.backtest_params()
+    assert (bp.stop_atr, bp.trail_atr, bp.daily_loss_limit_pct) == (2, 3, 3)
