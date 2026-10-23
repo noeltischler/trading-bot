@@ -11,9 +11,10 @@ from datetime import datetime, timezone
 
 import pandas as pd
 
-from tradingbot.backtest import BacktestParams, run as run_backtest
+from tradingbot.backtest import run as run_backtest
 from tradingbot.config import load_config
 from tradingbot.storage import CandleStore
+from tradingbot.strategy import StrategyParams, label as strategy_label
 
 
 def _market(exchange_id: str):
@@ -43,13 +44,7 @@ def cmd_fetch(args) -> int:
 
 def cmd_backtest(args) -> int:
     cfg = load_config(args.config)
-    bp = BacktestParams(
-        start_equity=cfg.start_equity,
-        risk_pct=cfg.risk.risk_per_trade_pct,
-        stop_pct=cfg.risk.stop_pct,
-        trail_pct=cfg.risk.trailing_stop_pct,
-        fee_pct=cfg.fee_pct,
-    )
+    bp = cfg.backtest_params()
     if args.csv:
         sources = {"CSV": pd.read_csv(args.csv)}
     else:
@@ -57,20 +52,23 @@ def cmd_backtest(args) -> int:
         sources = {coin: store.load(coin, cfg.timeframe) for coin in cfg.symbols}
         store.close()
 
-    print(f"Strategie {cfg.strategy.label()}, Risiko {bp.risk_pct} %/Trade, Stop {bp.stop_pct} %, Trailing {bp.trail_pct} %, Kosten {bp.fee_pct} %/Seite\n")
-    print(f"{'Coin':<8}{'Trades':>8}{'Treffer %':>11}{'Rendite %':>11}{'Max DD %':>10}{'PF':>7}")
+    print(f"Strategie {strategy_label(cfg.strategy)}, Risiko {bp.risk_pct} %/Trade, Stop {bp.stop_pct} %, Trailing {bp.trail_pct} %, Kosten {bp.fee_pct} %/Seite\n")
+    print(f"{'Coin':<8}{'Trades':>8}{'Treffer %':>11}{'Rendite %':>11}{'Max DD %':>10}{'PF':>7}{'Kelly %':>9}")
     for name, df in sources.items():
         if len(df) < 250:
             print(f"{name:<8} zu wenige Kerzen ({len(df)}). Erst 'fetch' ausführen.")
             continue
         s = run_backtest(df, bp, cfg.strategy).summary()
         pf = "-" if s["profit_factor"] is None else s["profit_factor"]
-        print(f"{name:<8}{s['trades']:>8}{s['win_rate_pct']:>11}{s['return_pct']:>11}{s['max_drawdown_pct']:>10}{pf:>7}")
+        kelly = "-" if s["kelly_pct"] is None else s["kelly_pct"]
+        print(f"{name:<8}{s['trades']:>8}{s['win_rate_pct']:>11}{s['return_pct']:>11}{s['max_drawdown_pct']:>10}{pf:>7}{kelly:>9}")
+    print("\nKelly % = rechnerisch bester Einsatz pro Trade. Negativ: kein Vorteil, nicht handeln."
+          "\nPositiv: Ein Viertel davon ist eine vorsichtige Obergrenze für risk_per_trade_pct.")
     return 0
 
 
 def cmd_optimize(args) -> int:
-    from tradingbot.optimize import GRID, best, evaluate
+    from tradingbot.optimize import EXIT_VARIANTS, GRID, best, evaluate
 
     cfg = load_config(args.config)
     store = CandleStore(cfg.database)
@@ -81,7 +79,7 @@ def cmd_optimize(args) -> int:
         return 1
 
     fee = cfg.fee_pct if args.fee is None else args.fee
-    bp = BacktestParams(start_equity=cfg.start_equity, risk_pct=cfg.risk.risk_per_trade_pct, fee_pct=fee)
+    bp = cfg.backtest_params(fee)
     print(f"Kosten {fee} % pro Seite. Teste Kombinationen auf den ersten 2/3 der Daten, prüfe auf dem letzten 1/3 ...")
     print("(Rendite = Summe über alle Coins, dauert 1 bis 3 Minuten)\n")
     grid = GRID
@@ -90,6 +88,8 @@ def cmd_optimize(args) -> int:
         if not grid["strategy"]:
             print(f"Unbekannte Strategie '{args.kind}'.")
             return 1
+    if args.exits:
+        grid = {**grid, "exits": EXIT_VARIANTS}
     # Länge des Testteils (letztes Drittel) in Tagen, für "Trades pro Tag"
     test_days = max(min((df.time.iloc[-1] - df.time.iloc[0]) / 86400 for df in data.values()) * 0.33, 1.0)
     # Mit --kind alle Varianten zeigen, auch solche mit wenigen Trades
@@ -97,15 +97,16 @@ def cmd_optimize(args) -> int:
     if args.per_day:
         min_trades = max(min_trades, math.ceil(args.per_day * test_days))
         print(f"Nur Kombinationen mit mindestens {args.per_day:g} Trades pro Tag (alle Coins zusammen).\n")
-    ranking = best(evaluate(data, cfg.timeframe, bp, cfg.strategy, grid=grid), min_trades=min_trades)
+    base_sp = cfg.strategy if isinstance(cfg.strategy, StrategyParams) else StrategyParams()
+    ranking = best(evaluate(data, cfg.timeframe, bp, base_sp, grid=grid), min_trades=min_trades)
     if not ranking:
         print("Keine Kombination mit genug Trades gefunden.")
         return 0
 
-    print(f"{'Kombination':<48}{'Training %':>11}{'Test %':>9}{'Test PF':>9}{'Trades':>8}{'pro Tag':>9}{'Coins +':>9}")
+    print(f"{'Kombination':<62}{'Training %':>11}{'Test %':>9}{'Test PF':>9}{'Trades':>8}{'pro Tag':>9}{'Coins +':>9}")
     for r in ranking:
         pf = "-" if r.test_pf is None else r.test_pf
-        print(f"{r.combo.label():<48}{r.train_return:>11}{r.test_return:>9}{pf:>9}{r.test_trades:>8}"
+        print(f"{r.combo.label():<62}{r.train_return:>11}{r.test_return:>9}{pf:>9}{r.test_trades:>8}"
               f"{r.test_trades / test_days:>9.1f}{r.coins_positive:>7}/{len(data)}")
     print("\nGut ist eine Kombination nur, wenn sie AUCH im Test im Plus ist (Test % > 0, PF > 1).")
     return 0
@@ -181,7 +182,8 @@ def main(argv: list[str] | None = None) -> int:
     bt.add_argument("--csv", help="statt der Datenbank eine CSV mit time,open,high,low,close,volume nutzen")
     opt = sub.add_parser("optimize", help="Strategien, Zeitrahmen, Stops und Trailing automatisch durchtesten")
     opt.add_argument("--fee", type=float, help="Kosten pro Seite in %% statt fee_pct aus config.yaml")
-    opt.add_argument("--kind", help="nur eine Strategie testen: ema, breakout, meanrev oder wedge")
+    opt.add_argument("--kind", help="nur eine Strategie testen: ema, breakout, meanrev, wedge, fvg, supertrend, fib oder sweep")
+    opt.add_argument("--exits", action="store_true", help="zusätzlich Gewinnziele und ATR-Stops ausprobieren")
     opt.add_argument("--per-day", type=float, help="nur Kombinationen mit mindestens so vielen Trades pro Tag zeigen")
     sub.add_parser("run", help="Bot dauerhaft auf dem Übungskonto laufen lassen")
     sub.add_parser("status", help="Kontostand, offene Positionen und letzte Trades anzeigen")

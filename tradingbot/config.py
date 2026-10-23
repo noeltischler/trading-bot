@@ -18,6 +18,13 @@ class RiskConfig:
     stop_pct: float = 1.0
     trailing_stop_pct: float = 1.0
     max_open_positions: int = 3
+    # Sicherheitsregeln (0 = aus)
+    stop_atr: float = 0.0             # Stop-Abstand in ATR statt in % (passt sich der Schwankung an)
+    trail_atr: float = 0.0            # Trailing-Abstand in ATR statt in %
+    take_profit_r: float = 0.0        # Gewinnziel als Vielfaches des Stop-Abstands
+    max_position_pct: float = 0.0     # Positionswert höchstens so viel % vom Konto
+    daily_loss_limit_pct: float = 0.0  # nach so viel % Tagesverlust keine neuen Trades bis Mitternacht (UTC)
+    drawdown_brake_pct: float = 0.0   # Risiko halbieren, solange das Konto so viel % unter dem Höchststand ist
 
 
 @dataclass
@@ -33,7 +40,30 @@ class Config:
     start_equity: float = 10_000.0
     fee_pct: float = 0.1
     risk: RiskConfig = field(default_factory=RiskConfig)
-    strategy: StrategyParams = field(default_factory=StrategyParams)
+    # Eine Strategie oder mehrere zusammen (Tupel), siehe strategy.signals
+    strategy: StrategyParams | tuple[StrategyParams, ...] = field(default_factory=StrategyParams)
+
+    def backtest_params(self, fee_pct: float | None = None):
+        """Risikoregeln aus der Config als BacktestParams (gleich für Backtest und live)."""
+        from tradingbot.backtest import BacktestParams
+
+        r = self.risk
+        return BacktestParams(
+            start_equity=self.start_equity, risk_pct=r.risk_per_trade_pct, stop_pct=r.stop_pct,
+            trail_pct=r.trailing_stop_pct, fee_pct=self.fee_pct if fee_pct is None else fee_pct,
+            stop_atr=r.stop_atr, trail_atr=r.trail_atr, take_profit_r=r.take_profit_r,
+            max_position_pct=r.max_position_pct, daily_loss_limit_pct=r.daily_loss_limit_pct,
+            drawdown_brake_pct=r.drawdown_brake_pct,
+        )
+
+
+def _strategy(raw) -> StrategyParams | tuple[StrategyParams, ...]:
+    """strategy: in config.yaml ist ein Block oder eine Liste von Blöcken."""
+    if isinstance(raw, list):
+        if not raw:
+            raise ValueError("Die Liste unter 'strategy' ist leer.")
+        return tuple(StrategyParams(**(x or {})) for x in raw)
+    return StrategyParams(**(raw or {}))
 
 
 def load_config(path: str | Path = "config.yaml") -> Config:
@@ -68,5 +98,5 @@ def load_config(path: str | Path = "config.yaml") -> Config:
         start_equity=float(raw.get("start_equity", 10_000.0)),
         fee_pct=float(raw.get("fee_pct", 0.1)),
         risk=risk,
-        strategy=StrategyParams(**(raw.get("strategy") or {})),
+        strategy=_strategy(raw.get("strategy")),
     )

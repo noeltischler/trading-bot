@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import numpy as np
 import pandas as pd
 
 
@@ -24,3 +25,33 @@ def atr(df: pd.DataFrame, period: int = 14) -> pd.Series:
         axis=1,
     ).max(axis=1)
     return tr.ewm(alpha=1 / period, adjust=False, min_periods=period).mean()
+
+
+def supertrend(df: pd.DataFrame, period: int = 10, factor: float = 3.0) -> pd.Series:
+    """Supertrend-Richtung je Kerze: 1 = Aufwärtstrend, -1 = Abwärtstrend, 0 = noch unbekannt.
+
+    Bänder im Abstand factor × ATR um die Kerzenmitte. Das untere Band steigt nur,
+    das obere fällt nur. Schließt der Kurs jenseits des aktiven Bandes, dreht der Trend.
+    """
+    a = atr(df, period).to_numpy()
+    mid = ((df["high"] + df["low"]) / 2).to_numpy()
+    close = df["close"].to_numpy()
+    n = len(df)
+    out = np.zeros(n, dtype=int)
+    upper = lower = np.nan
+    trend = 0
+    for i in range(n):
+        if np.isnan(a[i]):
+            continue
+        up, lo = mid[i] + factor * a[i], mid[i] - factor * a[i]
+        if trend == 0:
+            upper, lower, trend = up, lo, (1 if close[i] > mid[i] else -1)
+        else:
+            upper = up if (up < upper or close[i - 1] > upper) else upper
+            lower = lo if (lo > lower or close[i - 1] < lower) else lower
+            if trend == 1 and close[i] < lower:
+                trend = -1
+            elif trend == -1 and close[i] > upper:
+                trend = 1
+        out[i] = trend
+    return pd.Series(out, index=df.index)
