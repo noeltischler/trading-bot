@@ -263,6 +263,60 @@ def _stats_html(st: dict) -> str:
     return '<div class="stats">' + "".join(f'<div><div class="v">{v}</div><div class="l">{l}</div></div>' for l, v in items) + "</div>"
 
 
+def _market_html(account: PaperAccount, now: int) -> str:
+    """Karte „Marktlage“: Fear & Greed Index und die nächsten Wirtschaftstermine."""
+    from tradingbot.events import event_near, next_events
+
+    raw = account.get_state("fear_greed")
+    if raw:
+        value, label, _ = raw.split(":", 2)
+        v = int(value)
+        color = "var(--down)" if v <= 25 else "var(--up)" if v >= 75 else "var(--muted)"
+        fg = (f'<div class="kpi"><div class="v" style="color:{color}">{v}</div><div class="l">Fear &amp; Greed: {html.escape(label)}</div></div>'
+              f'<div style="height:8px;border-radius:4px;margin:6px 0 12px;background:linear-gradient(90deg,var(--down),var(--muted),var(--up));position:relative">'
+              f'<span style="position:absolute;left:calc({v}% - 2px);top:-3px;width:4px;height:14px;background:var(--text);border-radius:2px"></span></div>')
+    else:
+        fg = '<p class="muted">Fear &amp; Greed Index: noch kein Wert (lädt, sobald der Bot läuft).</p>'
+    current = event_near(now, 2, 2)
+    note = f'<p class="down" style="margin:0 0 8px">Gerade wichtiger Termin: {html.escape(current)}</p>' if current else ""
+    rows = "".join(f"<tr><td>{_fmt_time(t)}</td><td>{html.escape(name)}</td></tr>" for t, name in next_events(now, 3)) \
+        or "<tr><td colspan='2' class='muted'>Keine Termine eingetragen</td></tr>"
+    from tradingbot import news
+
+    items = news.recent(account.conn, now - 86400)
+    m = news.mood(items)
+    if m is None:
+        mood_txt = "noch keine bewerteten Schlagzeilen"
+    else:
+        word = "eher positiv" if m >= 0.5 else "eher negativ" if m <= -0.5 else "gemischt"
+        mood_txt = f'<b class="{"up" if m > 0 else "down" if m < 0 else ""}">{_signed(m, 2)} ({word})</b>'
+    heads = "".join(
+        f"<tr><td>{_fmt_time(i['published'])}</td><td class='{'up' if i['score'] > 0 else 'down' if i['score'] < 0 else 'muted'}'>{_signed(i['score'], 0)}</td>"
+        f"<td><a href='{html.escape(i['link'])}' rel='noopener noreferrer' target='_blank'>{html.escape(i['title'])}</a>"
+        f"<div class='muted' style='font-size:12px'>{html.escape(i['source'])}</div></td></tr>"
+        for i in items[:8] if i["link"].startswith(("http://", "https://"))
+    ) or "<tr><td colspan='3' class='muted'>Noch keine Schlagzeilen (werden alle 15 Minuten geladen)</td></tr>"
+    return (f'<section class="card"><h2>Marktlage</h2>{fg}{note}'
+            f'<table><tr><th>Nächste Termine (UTC)</th><th></th></tr>{rows}</table></section>'
+            f'<section class="card"><h2>Nachrichtenlage (nur zur Beobachtung, kein Einfluss auf Trades)</h2>'
+            f'<p style="margin:0 0 8px">Stimmung der letzten 24 Stunden: {mood_txt} · {len(items)} Schlagzeilen</p>'
+            f'<table><tr><th>Zeit (UTC)</th><th>Wert</th><th>Schlagzeile</th></tr>{heads}</table></section>')
+
+
+def _notify_html(account: PaperAccount) -> str:
+    """Karte mit dem ntfy-Kanal zum Abonnieren auf dem Handy."""
+    from tradingbot import notify
+
+    t = html.escape(notify.topic(account))
+    return (f'<section class="card"><h2>Benachrichtigungen aufs Handy</h2>'
+            f'<ol style="margin:0;padding-left:20px;line-height:1.6">'
+            f'<li>App <b>ntfy</b> installieren (App Store oder Google Play, kostenlos).</li>'
+            f'<li>In der App auf <b>+</b> tippen und diesen Kanal eintragen:<br>'
+            f'<code class="mono" style="user-select:all;word-break:break-all">{t}</code></li>'
+            f'<li>Server bleibt <b>ntfy.sh</b>, dann „Abonnieren“.</li></ol>'
+            f'<p class="muted" style="margin:8px 0 0">Der Kanalname ist wie ein Passwort: nicht weitergeben.</p></section>')
+
+
 def render(account: PaperAccount, title: str = "Trading-Bot", period: str | None = None, now: int | None = None) -> str:
     balance, start = account.balance, account.start_equity
     change = 100 * (balance / start - 1)
@@ -308,12 +362,14 @@ def render(account: PaperAccount, title: str = "Trading-Bot", period: str | None
   <div class="kpi"><div class="v">{win_rate}</div><div class="l">Trefferquote</div></div>
 </section>
 <div class="periods">{tiles}</div>
+{_market_html(account, now)}
 <section class="card"><h2>Zeitraum {label} · Ergebnis je {unit_name}</h2>{bars_svg(pnl_buckets(trades, since, now, unit))}
 {_stats_html(_stats(in_period))}
 <p style="margin:10px 0 0"><a href="/trades?p={period}">Diese Trades ansehen →</a></p></section>
 <section class="card"><h2>Kontoverlauf · {label}</h2>{equity_svg(points)}</section>
 <section class="card"><h2>Offene Positionen</h2><table><tr><th>Coin</th><th>Seite</th><th>Einstieg</th><th>Stop</th><th>Seit</th></tr>{pos_rows}</table></section>
 <section class="card"><h2>Letzte Trades</h2>{_trade_table(trades[-10:])}<p style="margin:10px 0 0"><a href="/trades">Alle Trades →</a></p></section>
+{_notify_html(account)}
 <section class="card"><h2>Blockchain-Nachweise</h2><table><tr><th>Tag</th><th>Fingerabdruck</th><th>Transaktion</th></tr>{anchor_rows}</table></section>"""
     return _page(title, "overview", body)
 

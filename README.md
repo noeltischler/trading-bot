@@ -101,6 +101,28 @@ Bot tut, steht im Terminal und in `bot.log`. Übungskonto und Trades liegen in
 - `drawdown_brake_pct`: Liegt das Konto so viel % unter seinem Höchststand, wird das
   Risiko pro Trade halbiert, bis es sich erholt hat.
 
+- `event_pause_hours`: So viele Stunden vor und nach wichtigen Wirtschaftsterminen
+  (US-Zinsentscheid, US-Inflation, US-Arbeitsmarkt, EZB-Zinsentscheid) keine neuen
+  Trades. Die Termine stehen in `tradingbot/events.py` und müssen einmal im Jahr
+  ergänzt werden (der Bot schreibt eine Warnung ins Protokoll, wenn die Liste endet).
+
+**Marktstimmung:**
+- Fear & Greed Index (alternative.me, 0 = extreme Angst, 100 = extreme Gier). `fetch`
+  lädt den Verlauf für Backtests, live lädt der Bot ihn stündlich. Filter je Strategie:
+  `fg_mode: contrarian` (bei extremer Angst kein Short, bei extremer Gier kein Long)
+  oder `follow` (umgekehrt), Grenzen `fg_low` / `fg_high`. Es zählt immer der Wert des
+  Vortags. Ist der Index nicht abrufbar, ist der Filter wirkungslos.
+- Nachrichtenlage: Der Bot lädt alle 15 Minuten Schlagzeilen (CoinDesk, Cointelegraph,
+  CNBC, Federal Reserve, EZB, tagesschau, BTC-ECHO), bewertet sie mit einer Stichwortliste
+  (−3 bis +3) und zeigt sie im Dashboard. **Nur zur Beobachtung**: Die Nachrichten
+  beeinflussen keine Trades, bis die gesammelten Daten zeigen, dass sie helfen.
+
+**Handy-Benachrichtigungen** (`notify: true`, Standard): Bei jedem eröffneten und
+geschlossenen Trade schickt der Bot eine Mitteilung über [ntfy](https://ntfy.sh)
+(Coin, Long/Short, Kurs, Stop bzw. Ergebnis). Der Kanalname wird beim ersten Start
+zufällig erzeugt und steht im Dashboard unter „Benachrichtigungen aufs Handy“.
+In der ntfy-App diesen Kanal abonnieren, fertig.
+
 `backtest` zeigt zusätzlich das **Kelly-Kriterium** (Kelly %): den rechnerisch besten
 Einsatz aus Trefferquote und Gewinn/Verlust-Verhältnis. Negativ heißt: kein Vorteil.
 Positiv: höchstens ein Viertel davon als `risk_per_trade_pct` nehmen.

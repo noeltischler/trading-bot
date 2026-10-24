@@ -14,6 +14,7 @@ from dataclasses import dataclass, replace
 import pandas as pd
 
 from tradingbot.backtest import BacktestParams, run
+from tradingbot.sentiment import with_fear_greed
 from tradingbot.strategy import StrategyParams, with_btc
 
 TIMEFRAME_MINUTES = {"1m": 1, "5m": 5, "15m": 15, "30m": 30, "1h": 60, "4h": 240, "1d": 1440}
@@ -123,7 +124,9 @@ def evaluate(
     base_sp: StrategyParams,
     test_share: float = 0.33,
     grid: dict = GRID,
+    fear_greed: pd.DataFrame | None = None,
 ) -> list[ComboResult]:
+    """fear_greed: Verlauf des Fear & Greed Index (für fg_mode), sonst None."""
     base_minutes = TIMEFRAME_MINUTES[base_timeframe]
     frames: dict[str, dict[str, pd.DataFrame]] = {}
     for tf in {c.timeframe for c in combos(base_timeframe, grid)}:
@@ -132,6 +135,8 @@ def evaluate(
         if "BTC" in frames[tf]:  # für btc_filter
             btc = frames[tf]["BTC"]
             frames[tf] = {coin: with_btc(df, btc) for coin, df in frames[tf].items()}
+        if fear_greed is not None:
+            frames[tf] = {coin: with_fear_greed(df, fear_greed) for coin, df in frames[tf].items()}
 
     from tradingbot.strategy import signals
 

@@ -25,6 +25,7 @@ class RiskConfig:
     max_position_pct: float = 0.0     # Positionswert höchstens so viel % vom Konto
     daily_loss_limit_pct: float = 0.0  # nach so viel % Tagesverlust keine neuen Trades bis Mitternacht (UTC)
     drawdown_brake_pct: float = 0.0   # Risiko halbieren, solange das Konto so viel % unter dem Höchststand ist
+    event_pause_hours: float = 0.0    # so viele Stunden vor und nach Fed-, CPI-, Arbeitsmarkt- und EZB-Terminen keine neuen Trades
 
 
 @dataclass
@@ -39,6 +40,7 @@ class Config:
     paper_database: str = "data/paper.db"
     start_equity: float = 10_000.0
     fee_pct: float = 0.1
+    notify: bool = True  # Handy-Benachrichtigung über ntfy bei jedem Trade
     risk: RiskConfig = field(default_factory=RiskConfig)
     # Eine Strategie oder mehrere zusammen (Tupel), siehe strategy.signals
     strategy: StrategyParams | tuple[StrategyParams, ...] = field(default_factory=StrategyParams)
@@ -53,7 +55,7 @@ class Config:
             trail_pct=r.trailing_stop_pct, fee_pct=self.fee_pct if fee_pct is None else fee_pct,
             stop_atr=r.stop_atr, trail_atr=r.trail_atr, take_profit_r=r.take_profit_r,
             max_position_pct=r.max_position_pct, daily_loss_limit_pct=r.daily_loss_limit_pct,
-            drawdown_brake_pct=r.drawdown_brake_pct,
+            drawdown_brake_pct=r.drawdown_brake_pct, event_pause_hours=r.event_pause_hours,
         )
 
 
@@ -97,6 +99,7 @@ def load_config(path: str | Path = "config.yaml") -> Config:
         paper_database=str(raw.get("paper_database", "data/paper.db")),
         start_equity=float(raw.get("start_equity", 10_000.0)),
         fee_pct=float(raw.get("fee_pct", 0.1)),
+        notify=bool(raw.get("notify", True)),
         risk=risk,
         strategy=_strategy(raw.get("strategy")),
     )

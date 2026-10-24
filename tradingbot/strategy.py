@@ -77,10 +77,17 @@ class StrategyParams:
     rsi_confirm: bool = False    # Long nicht bei RSI > rsi_max_long, Short nicht bei RSI < rsi_min_short
     btc_filter: int = 0          # Long nur, wenn Bitcoin über seiner EMA dieser Länge liegt, Short nur darunter
                                  # (z. B. 200). Braucht die Spalte btc_close, siehe with_btc.
+    fg_mode: str = ""            # Fear & Greed: "" aus, "contrarian" (bei extremer Angst kein Short,
+                                 # bei extremer Gier kein Long) oder "follow" (umgekehrt).
+                                 # Braucht die Spalte fear_greed, siehe sentiment.with_fear_greed.
+    fg_low: float = 25.0         # bis hierhin gilt: extreme Angst
+    fg_high: float = 75.0        # ab hier gilt: extreme Gier
 
     def __post_init__(self):
         if self.kind not in KINDS:
             raise ValueError(f"Unbekannte Strategie '{self.kind}'. Erlaubt: {KINDS}")
+        if self.fg_mode not in ("", "contrarian", "follow"):
+            raise ValueError("fg_mode muss leer, 'contrarian' oder 'follow' sein.")
 
     def label(self) -> str:
         if self.kind == "ema":
@@ -243,6 +250,10 @@ def uses_btc(p: "StrategyParams | tuple | list") -> bool:
     return any(x.btc_filter > 0 for x in p) if isinstance(p, (list, tuple)) else p.btc_filter > 0
 
 
+def uses_fear_greed(p: "StrategyParams | tuple | list") -> bool:
+    return any(x.fg_mode for x in p) if isinstance(p, (list, tuple)) else bool(p.fg_mode)
+
+
 def label(p: "StrategyParams | tuple | list") -> str:
     """Name einer Strategie oder einer Kombination, z. B. 'Keil 80 + Sweep 50'."""
     return " + ".join(x.label() for x in p) if isinstance(p, (list, tuple)) else p.label()
@@ -333,6 +344,15 @@ def signals(df: pd.DataFrame, p: "StrategyParams | tuple | list | None" = None) 
         b = df["btc_close"]
         e = ema(b, p.btc_filter)
         long_, short = long_ & (b > e), short & (b < e)
+    if p.fg_mode:
+        if "fear_greed" not in df:
+            raise ValueError("fg_mode braucht den Fear & Greed Index (Spalte fear_greed).")
+        fg = df["fear_greed"]
+        fear, greed = fg <= p.fg_low, fg >= p.fg_high
+        if p.fg_mode == "contrarian":
+            long_, short = long_ & ~greed, short & ~fear
+        else:
+            long_, short = long_ & ~fear, short & ~greed
     if p.volume_ratio > 0:
         loud = df["volume"] > p.volume_ratio * df["volume"].rolling(20).mean().shift()
         long_, short = long_ & loud, short & loud

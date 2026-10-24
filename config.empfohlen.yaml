@@ -36,6 +36,7 @@ risk:
   max_position_pct: 25       # eine Position höchstens 25 % vom Konto
   daily_loss_limit_pct: 3    # nach 3 % Tagesverlust keine neuen Trades bis Mitternacht (UTC)
   drawdown_brake_pct: 10     # 10 % unter Höchststand: Risiko pro Trade halbieren
+  event_pause_hours: 4       # 4 Stunden vor und nach Fed-, Inflations-, Arbeitsmarkt- und EZB-Terminen keine neuen Trades
 
 # Drei Strategien zusammen. Haben mehrere auf derselben Kerze ein Signal, zählt die erste.
 # btc_filter: 200 heißt bei allen: Long nur, wenn Bitcoin über seiner EMA 200 liegt,
