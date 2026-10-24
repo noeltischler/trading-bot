@@ -22,6 +22,9 @@
 - "fib":      Fibonacci-Rücksetzer („Golden Pocket“). Im Aufwärtstrend vom Tief zum
               Hoch der letzten lookback Kerzen: Long, wenn der Kurs bis unter die
               61,8-%-Marke zurückfällt, aber über der 78,6-%-Marke schließt.
+- "squeeze":  Bollinger-Squeeze. Die Bandbreite (Bollinger 20, 2 Standardabweichungen)
+              war vor Kurzem die engste der letzten lookback Kerzen (ruhiger Markt).
+              Long, wenn der Kurs danach über das obere Band ausbricht.
 - "sweep":    Liquiditäts-Sweep („Turtle Soup“). Long, wenn eine Kerze unter das
               Tief der letzten lookback Kerzen sticht, aber wieder darüber schließt
               (Stopps abgeholt, Ausbruch gescheitert). Mit Trend-EMA-Filter, wenn use_trend.
@@ -41,10 +44,10 @@ from dataclasses import dataclass
 import numpy as np
 import pandas as pd
 
-from tradingbot.indicators import atr, ema, rsi, supertrend
+from tradingbot.indicators import adx, atr, ema, macd_hist, rsi, supertrend
 
 LONG, FLAT, SHORT = 1, 0, -1
-KINDS = ("ema", "breakout", "meanrev", "wedge", "fvg", "supertrend", "fib", "sweep")
+KINDS = ("ema", "breakout", "meanrev", "wedge", "fvg", "supertrend", "fib", "sweep", "squeeze")
 
 
 @dataclass
@@ -66,6 +69,14 @@ class StrategyParams:
     fvg_min_atr: float = 0.5     # fvg: Mindestgröße der Lücke in ATR
     st_period: int = 10          # supertrend: ATR-Länge
     st_factor: float = 3.0       # supertrend: Bandabstand in ATR
+    volume_ratio: float = 0.0    # alle: nur Signale mit Volumen über volume_ratio × Ø der letzten 20 Kerzen (0 = aus)
+    # Bestätigung durch Indikatoren (alle Strategien, 0/False = aus)
+    ema_filter: int = 0          # Long nur über, Short nur unter dieser EMA (z. B. 50)
+    adx_min: float = 0.0         # nur bei Trendstärke ADX über diesem Wert (z. B. 20)
+    macd_confirm: bool = False   # Long nur bei MACD-Histogramm > 0, Short < 0
+    rsi_confirm: bool = False    # Long nicht bei RSI > rsi_max_long, Short nicht bei RSI < rsi_min_short
+    btc_filter: int = 0          # Long nur, wenn Bitcoin über seiner EMA dieser Länge liegt, Short nur darunter
+                                 # (z. B. 200). Braucht die Spalte btc_close, siehe with_btc.
 
     def __post_init__(self):
         if self.kind not in KINDS:
@@ -86,7 +97,10 @@ class StrategyParams:
             return f"Fibonacci {self.lookback}"
         if self.kind == "sweep":
             return f"Sweep {self.lookback}"
-        return f"RSI {self.rsi_low:g}/{self.rsi_high:g}"
+        if self.kind == "squeeze":
+            return f"Squeeze {self.lookback}"
+        period = "" if self.rsi_period == 14 else f"-{self.rsi_period}"
+        return f"RSI{period} {self.rsi_low:g}/{self.rsi_high:g}"
 
 
 def _rising(cond: pd.Series) -> pd.Series:
@@ -216,6 +230,19 @@ def fib_pullbacks(df: pd.DataFrame, lookback: int) -> tuple[np.ndarray, np.ndarr
     return long_, short
 
 
+def with_btc(df: pd.DataFrame, btc: pd.DataFrame) -> pd.DataFrame:
+    """Hängt den Bitcoin-Schlusskurs zur selben Zeit als Spalte btc_close an
+    (für btc_filter). Fehlende Zeiten bekommen den letzten bekannten Kurs."""
+    b = btc.set_index("time")["close"]
+    out = df.copy()
+    out["btc_close"] = b.reindex(df["time"]).ffill().to_numpy()
+    return out
+
+
+def uses_btc(p: "StrategyParams | tuple | list") -> bool:
+    return any(x.btc_filter > 0 for x in p) if isinstance(p, (list, tuple)) else p.btc_filter > 0
+
+
 def label(p: "StrategyParams | tuple | list") -> str:
     """Name einer Strategie oder einer Kombination, z. B. 'Keil 80 + Sweep 50'."""
     return " + ".join(x.label() for x in p) if isinstance(p, (list, tuple)) else p.label()
@@ -271,12 +298,44 @@ def signals(df: pd.DataFrame, p: "StrategyParams | tuple | list | None" = None) 
         short = (df["high"] > prev_high) & (close < prev_high)
         if p.use_trend:
             long_, short = long_ & up, short & down
+    elif p.kind == "squeeze":
+        mid = close.rolling(20).mean()
+        sd = close.rolling(20).std()
+        upper, lower = mid + 2 * sd, mid - 2 * sd
+        width = (upper - lower) / mid
+        # Squeeze: engste Bandbreite seit lookback Kerzen, irgendwann in den letzten 10 Kerzen
+        squeezed = (width <= width.rolling(p.lookback).min()).astype(float).rolling(10).max() > 0
+        long_ = squeezed & _rising(close > upper)
+        short = squeezed & _rising(close < lower)
+        if p.use_trend:
+            long_, short = long_ & up, short & down
     else:  # meanrev
         r = rsi(close, p.rsi_period)
         ready = r.notna() & trend.notna()
         long_ = ready & _rising(r < p.rsi_low) & up
         short = ready & _rising(r > p.rsi_high) & down
 
+    if p.ema_filter > 0:
+        e = ema(close, p.ema_filter)
+        long_, short = long_ & (close > e), short & (close < e)
+    if p.adx_min > 0:
+        strong = adx(df) > p.adx_min
+        long_, short = long_ & strong, short & strong
+    if p.macd_confirm:
+        h = macd_hist(close)
+        long_, short = long_ & (h > 0), short & (h < 0)
+    if p.rsi_confirm:
+        r = rsi(close, 14)
+        long_, short = long_ & (r < p.rsi_max_long), short & (r > p.rsi_min_short)
+    if p.btc_filter > 0:
+        if "btc_close" not in df:
+            raise ValueError("btc_filter braucht Bitcoin-Kurse (Spalte btc_close, siehe with_btc).")
+        b = df["btc_close"]
+        e = ema(b, p.btc_filter)
+        long_, short = long_ & (b > e), short & (b < e)
+    if p.volume_ratio > 0:
+        loud = df["volume"] > p.volume_ratio * df["volume"].rolling(20).mean().shift()
+        long_, short = long_ & loud, short & loud
     sig = pd.Series(FLAT, index=df.index)
     sig[long_.fillna(False)] = LONG
     if p.allow_short:

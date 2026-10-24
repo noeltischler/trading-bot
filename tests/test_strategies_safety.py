@@ -142,3 +142,52 @@ def test_combined_strategies_first_one_wins():
     assert ((both != 0) == ((sa != 0) | (sb != 0))).all()
     assert (both[sa != 0] == sa[sa != 0]).all()
     assert label((a, b)) == "Sweep 20 + Supertrend 3"
+
+
+@pytest.mark.parametrize("extra", [
+    {"kind": "squeeze", "lookback": 60, "use_trend": False},
+    {"kind": "sweep", "lookback": 20, "volume_ratio": 1.2, "use_trend": False},
+    {"kind": "sweep", "lookback": 20, "use_trend": False, "ema_filter": 20, "adx_min": 15, "macd_confirm": True, "rsi_confirm": True},
+])
+def test_squeeze_and_filters_use_no_future_data(extra):
+    df = _random_frame(400)
+    rng = np.random.default_rng(3)
+    df["volume"] = rng.uniform(1, 3, len(df))
+    sp = StrategyParams(trend=50, **extra)
+    full = signals(df, sp)
+    for end in range(100, len(df), 7):
+        assert signals(df.iloc[:end], sp).iloc[-1] == full.iloc[end - 1]
+
+
+def test_filters_only_remove_signals():
+    df = _random_frame(600)
+    base = StrategyParams(kind="sweep", lookback=20, use_trend=False)
+    plain = signals(df, base)
+    for extra in ({"ema_filter": 50}, {"adx_min": 20}, {"macd_confirm": True}, {"rsi_confirm": True}):
+        filtered = signals(df, StrategyParams(kind="sweep", lookback=20, use_trend=False, **extra))
+        assert ((filtered == 0) | (filtered == plain)).all()
+        assert (filtered != 0).sum() <= (plain != 0).sum()
+
+
+def test_adx_and_macd_ranges():
+    from tradingbot.indicators import adx, macd_hist
+
+    rows = [(100 + k, 101 + k, 99.5 + k, 100.8 + k) for k in range(80)]
+    df = _ohlc(rows)
+    a = adx(df).dropna()
+    assert ((a >= 0) & (a <= 100 + 1e-9)).all() and a.iloc[-1] > 25   # klarer Aufwärtstrend
+    assert macd_hist(df["close"]).notna().any()
+
+
+def test_btc_filter_needs_btc_column_and_filters():
+    from tradingbot.strategy import with_btc
+
+    df = _random_frame(400)
+    sp = StrategyParams(kind="sweep", lookback=20, use_trend=False, btc_filter=50)
+    with pytest.raises(ValueError):
+        signals(df, sp)
+    falling = df.copy()
+    falling["close"] = np.linspace(200, 100, len(df))
+    sig = signals(with_btc(df, falling), sp)
+    assert (sig == LONG).sum() == 0
+    assert (signals(df, StrategyParams(kind="sweep", lookback=20, use_trend=False)) == LONG).sum() > 0

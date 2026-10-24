@@ -70,7 +70,16 @@ Bot tut, steht im Terminal und in `bot.log`. Übungskonto und Trades liegen in
   Kerzen) bis unter 61,8 %, Schluss aber über 78,6 % → *Long*.
 - `sweep` (Liquiditäts-Sweep, „Turtle Soup“): Kerze sticht unter das Tief der letzten
   `lookback` Kerzen und schließt wieder darüber → *Long*.
-- `fvg`, `fib` und `sweep` handeln mit `use_trend: true` nur mit dem Trend (Trend-EMA).
+- `squeeze` (Bollinger-Squeeze): Nach der engsten Bandbreite seit `lookback` Kerzen
+  *Long* beim Ausbruch über das obere Bollinger-Band.
+- `meanrev` mit `rsi_period: 2`, `rsi_low: 10`, `rsi_high: 90` ist die bekannte
+  RSI-2-Strategie nach Larry Connors.
+- **Bestätigung durch Indikatoren** (für jede Strategie, 0 = aus): `ema_filter` (Long nur
+  über dieser EMA), `adx_min` (Mindest-Trendstärke), `macd_confirm`, `rsi_confirm`,
+  `volume_ratio` (Volumen über dem Durchschnitt) und `btc_filter`: Long nur, wenn
+  Bitcoin über seiner EMA dieser Länge liegt, Short nur darunter. Altcoins folgen
+  meist Bitcoin, deshalb hilft das gegen Trades gegen den Gesamtmarkt.
+- `fvg`, `fib`, `sweep` und `squeeze` handeln mit `use_trend: true` nur mit dem Trend (Trend-EMA).
 - Mehrere Strategien zusammen: unter `strategy:` statt eines Blocks eine Liste von
   Blöcken eintragen (siehe `config.empfohlen.yaml`). Es zählt das Signal der ersten
   Strategie, die eines hat.
