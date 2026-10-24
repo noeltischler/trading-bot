@@ -24,9 +24,16 @@ FEEDS = {
     "CoinDesk (US)": "https://www.coindesk.com/arc/outboundfeeds/rss/",
     "Cointelegraph (US)": "https://cointelegraph.com/rss",
     "CNBC Wirtschaft (US)": "https://www.cnbc.com/id/20910258/device/rss/rss.html",
+    "US News Geld (US)": "https://www.usnews.com/rss/money",
+    "US News Wirtschaft (US)": "https://www.usnews.com/rss/business",
     "Federal Reserve (US)": "https://www.federalreserve.gov/feeds/press_all.xml",
     "EZB (EU)": "https://www.ecb.europa.eu/rss/press.html",
+    "Euronews Wirtschaft (EU)": "https://de.euronews.com/rss?level=theme&name=business",
+    "Euronews Business (EU)": "https://www.euronews.com/rss?level=theme&name=business",
     "tagesschau Wirtschaft (DE)": "https://www.tagesschau.de/wirtschaft/index~rss2.xml",
+    "tagesschau Finanzen (DE)": "https://www.tagesschau.de/wirtschaft/finanzen/index~rss2.xml",
+    "tagesschau Weltwirtschaft (DE)": "https://www.tagesschau.de/wirtschaft/weltwirtschaft/index~rss2.xml",
+    "tagesschau Konjunktur (DE)": "https://www.tagesschau.de/wirtschaft/konjunktur/index~rss2.xml",
     "BTC-ECHO (DE)": "https://www.btc-echo.de/feed/",
 }
 
@@ -116,30 +123,47 @@ def parse_feed(xml_bytes: bytes, source: str, now: int | None = None) -> list[di
     return out
 
 
-def fetch_all(feeds: dict[str, str] = FEEDS, timeout: float = 15.0, log=None) -> list[dict]:
-    """Holt alle Feeds; ein kaputter Feed stoppt die anderen nicht."""
-    items = []
+def fetch_each(feeds: dict[str, str] = FEEDS, timeout: float = 15.0) -> dict[str, list[dict] | Exception]:
+    """Holt jeden Feed einzeln: je Quelle die Einträge oder den Fehler."""
+    out: dict[str, list[dict] | Exception] = {}
     for source, url in feeds.items():
         try:
             req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0 (tradingbot)"})
             with urllib.request.urlopen(req, timeout=timeout) as resp:
-                items += parse_feed(resp.read(), source)
+                out[source] = parse_feed(resp.read(), source)
         except Exception as exc:
+            out[source] = exc
+    return out
+
+
+def fetch_all(feeds: dict[str, str] = FEEDS, timeout: float = 15.0, log=None) -> list[dict]:
+    """Holt alle Feeds; ein kaputter Feed stoppt die anderen nicht."""
+    items = []
+    for source, got in fetch_each(feeds, timeout).items():
+        if isinstance(got, Exception):
             if log:
-                log.warning("Nachrichten von %s nicht abrufbar: %s", source, exc)
+                log.warning("Nachrichten von %s nicht abrufbar: %s", source, got)
+        else:
+            items += got
     return items
 
 
 def save(conn: sqlite3.Connection, items: list[dict]) -> int:
-    """Speichert neue Schlagzeilen (bekannte werden übersprungen). Gibt die Zahl neuer zurück."""
+    """Speichert neue Schlagzeilen. Bekannte werden übersprungen, auch wenn derselbe Artikel
+    in mehreren Feeds einer Seite steht (gleicher Link). Gibt die Zahl neuer zurück."""
     conn.executescript(_SCHEMA)
     before = conn.execute("SELECT COUNT(*) FROM news").fetchone()[0]
+    links = {r[0] for r in conn.execute("SELECT link FROM news WHERE link != ''")}
+    rows = []
+    for i in items:
+        if i["link"]:
+            if i["link"] in links:
+                continue
+            links.add(i["link"])
+        rows.append((hashlib.sha1(f"{i['source']}|{i['link'] or i['title']}".encode()).hexdigest(),
+                     i["published"], i["source"], i["title"], i["link"], i["score"]))
     with conn:
-        conn.executemany(
-            "INSERT OR IGNORE INTO news VALUES (?,?,?,?,?,?)",
-            [(hashlib.sha1(f"{i['source']}|{i['link'] or i['title']}".encode()).hexdigest(),
-              i["published"], i["source"], i["title"], i["link"], i["score"]) for i in items],
-        )
+        conn.executemany("INSERT OR IGNORE INTO news VALUES (?,?,?,?,?,?)", rows)
     return conn.execute("SELECT COUNT(*) FROM news").fetchone()[0] - before
 
 
