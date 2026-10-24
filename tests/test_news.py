@@ -42,6 +42,19 @@ def test_save_skips_duplicates_and_mood():
     assert len(got) == 2 and news.mood(got) == 0.5
 
 
+def test_save_skips_same_article_from_second_feed():
+    conn = sqlite3.connect(":memory:")
+    items = news.parse_feed(RSS, "Wirtschaft", now=1_900_000_000)
+    assert news.save(conn, items) == 2
+    other = [dict(i, source="Finanzen") for i in items]
+    assert news.save(conn, other) == 0
+
+
+def test_fetch_each_reports_errors_per_source():
+    got = news.fetch_each({"kaputt": "http://127.0.0.1:9/nichts"}, timeout=1)
+    assert isinstance(got["kaputt"], Exception)
+
+
 def test_fetch_all_survives_broken_feed():
     assert news.fetch_all({"kaputt": "http://127.0.0.1:9/nichts"}, timeout=1) == []
 

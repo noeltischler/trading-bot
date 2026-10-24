@@ -113,9 +113,12 @@ Bot tut, steht im Terminal und in `bot.log`. Übungskonto und Trades liegen in
   oder `follow` (umgekehrt), Grenzen `fg_low` / `fg_high`. Es zählt immer der Wert des
   Vortags. Ist der Index nicht abrufbar, ist der Filter wirkungslos.
 - Nachrichtenlage: Der Bot lädt alle 15 Minuten Schlagzeilen (CoinDesk, Cointelegraph,
-  CNBC, Federal Reserve, EZB, tagesschau, BTC-ECHO), bewertet sie mit einer Stichwortliste
+  CNBC, US News, Federal Reserve, EZB, Euronews, tagesschau Wirtschaft/Finanzen/
+  Weltwirtschaft/Konjunktur, BTC-ECHO), bewertet sie mit einer Stichwortliste
   (−3 bis +3) und zeigt sie im Dashboard. **Nur zur Beobachtung**: Die Nachrichten
   beeinflussen keine Trades, bis die gesammelten Daten zeigen, dass sie helfen.
+  `python -m tradingbot news` zeigt, welche Quellen erreichbar sind (`--save` speichert
+  die Schlagzeilen zusätzlich fürs Dashboard).
 
 **Handy-Benachrichtigungen** (`notify: true`, Standard): Bei jedem eröffneten und
 geschlossenen Trade schickt der Bot eine Mitteilung über [ntfy](https://ntfy.sh)

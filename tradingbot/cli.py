@@ -1,4 +1,4 @@
-"""Kommandozeile:  python -m tradingbot fetch | backtest | optimize | run | status | dashboard | verify"""
+"""Kommandozeile:  python -m tradingbot fetch | backtest | optimize | run | status | dashboard | verify | news"""
 
 from __future__ import annotations
 
@@ -186,6 +186,31 @@ def cmd_verify(args) -> int:
     return 0
 
 
+def cmd_news(args) -> int:
+    from tradingbot import news
+    from tradingbot.paper import PaperAccount
+
+    results = news.fetch_each()
+    items = []
+    for source, got in results.items():
+        if isinstance(got, Exception):
+            print(f"  FEHLER  {source}: {got}")
+        else:
+            print(f"  OK      {source}: {len(got)} Schlagzeilen")
+            items += got
+    ok = sum(not isinstance(g, Exception) for g in results.values())
+    print(f"{ok} von {len(results)} Quellen erreichbar.")
+    if args.save:
+        cfg = load_config(args.config)
+        acc = PaperAccount(cfg.paper_database, cfg.start_equity, cfg.fee_pct)
+        print(f"{news.save(acc.conn, items)} neue Schlagzeilen gespeichert.")
+    m = news.mood(items)
+    print("Stimmung: " + ("keine Wertung" if m is None else f"{m:+.2f} (−3 sehr negativ bis +3 sehr positiv)"))
+    for i in sorted((i for i in items if i["score"]), key=lambda i: -i["published"])[:10]:
+        print(f"  {i['score']:+d}  {_fmt(i['published'])}  {i['source']}: {i['title']}")
+    return 0 if ok else 1
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="tradingbot")
     parser.add_argument("--config", default="config.yaml")
@@ -204,10 +229,12 @@ def main(argv: list[str] | None = None) -> int:
     db.add_argument("--port", type=int, default=8080)
     db.add_argument("--host", default="127.0.0.1", help="0.0.0.0 = auch aus dem Netzwerk erreichbar")
     sub.add_parser("verify", help="Trade-Protokoll gegen die Tagesnachweise prüfen")
+    nw = sub.add_parser("news", help="Nachrichtenquellen abrufen und prüfen, welche erreichbar sind")
+    nw.add_argument("--save", action="store_true", help="Schlagzeilen auch fürs Dashboard speichern")
     args = parser.parse_args(argv)
 
     commands = {"fetch": cmd_fetch, "backtest": cmd_backtest, "optimize": cmd_optimize, "run": cmd_run, "status": cmd_status,
-                "dashboard": cmd_dashboard, "verify": cmd_verify}
+                "dashboard": cmd_dashboard, "verify": cmd_verify, "news": cmd_news}
     try:
         return commands[args.command](args)
     except (FileNotFoundError, ValueError) as exc:
