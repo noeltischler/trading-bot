@@ -263,6 +263,28 @@ def _stats_html(st: dict) -> str:
     return '<div class="stats">' + "".join(f'<div><div class="v">{v}</div><div class="l">{l}</div></div>' for l, v in items) + "</div>"
 
 
+def _market_html(account: PaperAccount, now: int) -> str:
+    """Karte „Marktlage“: Fear & Greed Index und die nächsten Wirtschaftstermine."""
+    from tradingbot.events import event_near, next_events
+
+    raw = account.get_state("fear_greed")
+    if raw:
+        value, label, _ = raw.split(":", 2)
+        v = int(value)
+        color = "var(--down)" if v <= 25 else "var(--up)" if v >= 75 else "var(--muted)"
+        fg = (f'<div class="kpi"><div class="v" style="color:{color}">{v}</div><div class="l">Fear &amp; Greed: {html.escape(label)}</div></div>'
+              f'<div style="height:8px;border-radius:4px;margin:6px 0 12px;background:linear-gradient(90deg,var(--down),var(--muted),var(--up));position:relative">'
+              f'<span style="position:absolute;left:calc({v}% - 2px);top:-3px;width:4px;height:14px;background:var(--text);border-radius:2px"></span></div>')
+    else:
+        fg = '<p class="muted">Fear &amp; Greed Index: noch kein Wert (lädt, sobald der Bot läuft).</p>'
+    current = event_near(now, 2, 2)
+    note = f'<p class="down" style="margin:0 0 8px">Gerade wichtiger Termin: {html.escape(current)}</p>' if current else ""
+    rows = "".join(f"<tr><td>{_fmt_time(t)}</td><td>{html.escape(name)}</td></tr>" for t, name in next_events(now, 3)) \
+        or "<tr><td colspan='2' class='muted'>Keine Termine eingetragen</td></tr>"
+    return (f'<section class="card"><h2>Marktlage</h2>{fg}{note}'
+            f'<table><tr><th>Nächste Termine (UTC)</th><th></th></tr>{rows}</table></section>')
+
+
 def render(account: PaperAccount, title: str = "Trading-Bot", period: str | None = None, now: int | None = None) -> str:
     balance, start = account.balance, account.start_equity
     change = 100 * (balance / start - 1)
@@ -308,6 +330,7 @@ def render(account: PaperAccount, title: str = "Trading-Bot", period: str | None
   <div class="kpi"><div class="v">{win_rate}</div><div class="l">Trefferquote</div></div>
 </section>
 <div class="periods">{tiles}</div>
+{_market_html(account, now)}
 <section class="card"><h2>Zeitraum {label} · Ergebnis je {unit_name}</h2>{bars_svg(pnl_buckets(trades, since, now, unit))}
 {_stats_html(_stats(in_period))}
 <p style="margin:10px 0 0"><a href="/trades?p={period}">Diese Trades ansehen →</a></p></section>

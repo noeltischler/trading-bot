@@ -25,6 +25,7 @@ class RiskConfig:
     max_position_pct: float = 0.0     # Positionswert höchstens so viel % vom Konto
     daily_loss_limit_pct: float = 0.0  # nach so viel % Tagesverlust keine neuen Trades bis Mitternacht (UTC)
     drawdown_brake_pct: float = 0.0   # Risiko halbieren, solange das Konto so viel % unter dem Höchststand ist
+    event_pause_hours: float = 0.0    # so viele Stunden vor und nach Fed-, CPI-, Arbeitsmarkt- und EZB-Terminen keine neuen Trades
 
 
 @dataclass
@@ -53,7 +54,7 @@ class Config:
             trail_pct=r.trailing_stop_pct, fee_pct=self.fee_pct if fee_pct is None else fee_pct,
             stop_atr=r.stop_atr, trail_atr=r.trail_atr, take_profit_r=r.take_profit_r,
             max_position_pct=r.max_position_pct, daily_loss_limit_pct=r.daily_loss_limit_pct,
-            drawdown_brake_pct=r.drawdown_brake_pct,
+            drawdown_brake_pct=r.drawdown_brake_pct, event_pause_hours=r.event_pause_hours,
         )
 
 

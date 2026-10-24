@@ -11,6 +11,7 @@ from datetime import datetime, timezone
 
 import pandas as pd
 
+from tradingbot import sentiment
 from tradingbot.backtest import run as run_backtest
 from tradingbot.config import load_config
 from tradingbot.storage import CandleStore
@@ -39,6 +40,12 @@ def cmd_fetch(args) -> int:
             print(f"{coin} ({symbol} @ {market.id}, {cfg.timeframe}): {n} Kerzen, {_fmt(df.time.iloc[0])} bis {_fmt(df.time.iloc[-1])} UTC")
     finally:
         store.close()
+    try:
+        fg = sentiment.fetch_fear_greed(limit=0)
+        sentiment.save(cfg.database, fg)
+        print(f"Fear & Greed Index: {len(fg)} Tage, {_fmt(fg.day_start.iloc[0])} bis {_fmt(fg.day_start.iloc[-1])} UTC")
+    except Exception as exc:
+        print(f"Fear & Greed Index nicht geladen: {exc}")
     return 0
 
 
@@ -53,6 +60,8 @@ def cmd_backtest(args) -> int:
         store.close()
         if "BTC" in sources and len(sources["BTC"]):  # für btc_filter
             sources = {coin: with_btc(df, sources["BTC"]) for coin, df in sources.items()}
+        fg = sentiment.load(cfg.database)  # für fg_mode
+        sources = {coin: sentiment.with_fear_greed(df, fg) for coin, df in sources.items()}
 
     print(f"Strategie {strategy_label(cfg.strategy)}, Risiko {bp.risk_pct} %/Trade, Stop {bp.stop_pct} %, Trailing {bp.trail_pct} %, Kosten {bp.fee_pct} %/Seite\n")
     print(f"{'Coin':<8}{'Trades':>8}{'Treffer %':>11}{'Rendite %':>11}{'Max DD %':>10}{'PF':>7}{'Kelly %':>9}")
@@ -100,7 +109,9 @@ def cmd_optimize(args) -> int:
         min_trades = max(min_trades, math.ceil(args.per_day * test_days))
         print(f"Nur Kombinationen mit mindestens {args.per_day:g} Trades pro Tag (alle Coins zusammen).\n")
     base_sp = cfg.strategy if isinstance(cfg.strategy, StrategyParams) else StrategyParams()
-    ranking = best(evaluate(data, cfg.timeframe, bp, base_sp, grid=grid), min_trades=min_trades)
+    fg = sentiment.load(cfg.database)
+    ranking = best(evaluate(data, cfg.timeframe, bp, base_sp, grid=grid, fear_greed=fg if len(fg) else None),
+                   min_trades=min_trades)
     if not ranking:
         print("Keine Kombination mit genug Trades gefunden.")
         return 0

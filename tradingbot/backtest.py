@@ -17,6 +17,7 @@ from dataclasses import dataclass, field
 
 import pandas as pd
 
+from tradingbot.events import event_near
 from tradingbot.indicators import atr
 from tradingbot.position import Position
 from tradingbot.strategy import FLAT, StrategyParams, signals
@@ -35,10 +36,13 @@ class BacktestParams:
     max_position_pct: float = 0.0  # >0: Positionswert höchstens so viel % vom Konto
     daily_loss_limit_pct: float = 0.0  # >0: nach so viel % Verlust am Tag keine neuen Trades
     drawdown_brake_pct: float = 0.0    # >0: Risiko halbieren, solange Konto so viel % unter Höchststand
+    event_pause_hours: float = 0.0     # >0: so viele Stunden vor und nach wichtigen Wirtschaftsterminen keine neuen Trades
 
 
-def entry_risk(bp, equity: float, peak: float, day_start: float) -> float:
-    """Risiko für einen neuen Trade in % (0 = heute nicht mehr handeln)."""
+def entry_risk(bp, equity: float, peak: float, day_start: float, now: float | None = None) -> float:
+    """Risiko für einen neuen Trade in % (0 = gerade nicht handeln)."""
+    if bp.event_pause_hours > 0 and now is not None and event_near(now, bp.event_pause_hours, bp.event_pause_hours):
+        return 0.0
     if bp.daily_loss_limit_pct > 0 and equity <= day_start * (1 - bp.daily_loss_limit_pct / 100):
         return 0.0
     if bp.drawdown_brake_pct > 0 and equity < peak * (1 - bp.drawdown_brake_pct / 100):
@@ -144,7 +148,7 @@ def run(
         if prev != FLAT:
             if pos and pos.side != prev:
                 close(i, o[i], "signal")
-            risk = entry_risk(bp, equity, peak, day_start)
+            risk = entry_risk(bp, equity, peak, day_start, t[i])
             if pos is None and risk > 0:
                 stop_pct, trail_pct = atr_pcts(bp, a[i - 1], o[i])
                 pos = Position.open("", int(prev), o[i], equity, risk, stop_pct, int(t[i]),
