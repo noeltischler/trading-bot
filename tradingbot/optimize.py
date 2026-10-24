@@ -14,7 +14,7 @@ from dataclasses import dataclass, replace
 import pandas as pd
 
 from tradingbot.backtest import BacktestParams, run
-from tradingbot.strategy import StrategyParams
+from tradingbot.strategy import StrategyParams, with_btc
 
 TIMEFRAME_MINUTES = {"1m": 1, "5m": 5, "15m": 15, "30m": 30, "1h": 60, "4h": 240, "1d": 1440}
 
@@ -79,6 +79,8 @@ GRID = {
         {"kind": "fib", "lookback": 50},
         {"kind": "sweep", "lookback": 20},
         {"kind": "sweep", "lookback": 50},
+        {"kind": "meanrev", "rsi_period": 2, "rsi_low": 10, "rsi_high": 90},
+        {"kind": "squeeze", "lookback": 120},
     ],
     "stop_pct": [1.0, 2.0, 3.0],
     "trail_pct": [1.0, 2.0, 3.0],
@@ -127,6 +129,9 @@ def evaluate(
     for tf in {c.timeframe for c in combos(base_timeframe, grid)}:
         m = TIMEFRAME_MINUTES[tf]
         frames[tf] = {coin: df if m == base_minutes else resample(df, m) for coin, df in data.items()}
+        if "BTC" in frames[tf]:  # für btc_filter
+            btc = frames[tf]["BTC"]
+            frames[tf] = {coin: with_btc(df, btc) for coin, df in frames[tf].items()}
 
     from tradingbot.strategy import signals
 

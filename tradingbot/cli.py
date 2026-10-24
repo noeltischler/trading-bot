@@ -14,7 +14,7 @@ import pandas as pd
 from tradingbot.backtest import run as run_backtest
 from tradingbot.config import load_config
 from tradingbot.storage import CandleStore
-from tradingbot.strategy import StrategyParams, label as strategy_label
+from tradingbot.strategy import StrategyParams, label as strategy_label, with_btc
 
 
 def _market(exchange_id: str):
@@ -51,6 +51,8 @@ def cmd_backtest(args) -> int:
         store = CandleStore(cfg.database)
         sources = {coin: store.load(coin, cfg.timeframe) for coin in cfg.symbols}
         store.close()
+        if "BTC" in sources and len(sources["BTC"]):  # für btc_filter
+            sources = {coin: with_btc(df, sources["BTC"]) for coin, df in sources.items()}
 
     print(f"Strategie {strategy_label(cfg.strategy)}, Risiko {bp.risk_pct} %/Trade, Stop {bp.stop_pct} %, Trailing {bp.trail_pct} %, Kosten {bp.fee_pct} %/Seite\n")
     print(f"{'Coin':<8}{'Trades':>8}{'Treffer %':>11}{'Rendite %':>11}{'Max DD %':>10}{'PF':>7}{'Kelly %':>9}")

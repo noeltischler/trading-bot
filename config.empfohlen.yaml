@@ -1,9 +1,11 @@
-# Empfohlene Einstellungen (Stand 22.10.2026), ausgewählt mit 'optimize' auf
-# 1 Jahr Kursdaten, 8 Coins, Kosten 0,1 % pro Seite:
-#   Keil 80 + Sweep 50, 4h, Stop 3 %, Trail 3 %
-#   Training (erste 2/3):  -0,2 %   (nur Keil: -10,6 %)
-#   Test (letztes 1/3):   +15,0 %   (nur Keil: +14,3 %), PF 1,27, 7 von 8 Coins im Plus
-#   etwa 1,6 Trades pro Tag
+# Empfohlene Einstellungen (Stand 24.10.2026), getestet auf 1 Jahr Kursdaten,
+# 8 Coins, Kosten 0,1 % pro Seite, mit allen Sicherheitsregeln:
+#   Keil 80 + Sweep 50 + RSI-2, alle nur in Bitcoin-Trendrichtung (EMA 200), 4h,
+#   Stop 3 %, Trail 5 %
+#   Training (erste 2/3):  +12,2 %   (vorher Keil + Sweep: +1,2 %)
+#   Test (letztes 1/3):   +18,3 %   (vorher +13,5 %), PF 1,30
+#   etwa 1,2 Trades pro Tag
+# Alle fünf getesteten Stop-Varianten waren in beiden Teilen im Plus.
 # Kein Versprechen für die Zukunft. Übernehmen:  cp config.empfohlen.yaml config.yaml
 
 exchange: kraken
@@ -28,20 +30,29 @@ fee_pct: 0.1
 risk:
   risk_per_trade_pct: 0.75   # 0,75 % des Kontos pro Trade
   stop_pct: 3.0              # Anfangs-Stop 3 % vom Einstieg
-  trailing_stop_pct: 3.0     # Stop wird 3 % hinter dem besten Kurs nachgezogen
+  trailing_stop_pct: 5.0     # Stop wird 5 % hinter dem besten Kurs nachgezogen
   max_open_positions: 8
   # Sicherheitsregeln
   max_position_pct: 25       # eine Position höchstens 25 % vom Konto
   daily_loss_limit_pct: 3    # nach 3 % Tagesverlust keine neuen Trades bis Mitternacht (UTC)
   drawdown_brake_pct: 10     # 10 % unter Höchststand: Risiko pro Trade halbieren
 
-# Zwei Strategien zusammen. Haben beide auf derselben Kerze ein Signal, zählt die erste.
+# Drei Strategien zusammen. Haben mehrere auf derselben Kerze ein Signal, zählt die erste.
+# btc_filter: 200 heißt bei allen: Long nur, wenn Bitcoin über seiner EMA 200 liegt,
+# Short nur darunter (nicht gegen den Gesamtmarkt handeln).
 strategy:
   - kind: wedge              # Keil-/Dreieck-Ausbruch (deine Idee)
     lookback: 80
+    btc_filter: 200
   - kind: sweep              # Liquiditäts-Sweep: Tief/Hoch der letzten 50 Kerzen
     lookback: 50             # wird kurz durchstoßen, Schluss wieder zurück
     use_trend: true
+    btc_filter: 200
+  - kind: meanrev            # RSI-2 nach Larry Connors: kurzer Rücksetzer im Trend
+    rsi_period: 2
+    rsi_low: 10
+    rsi_high: 90
+    btc_filter: 200
 
 database: data/market.db
 paper_database: data/paper.db

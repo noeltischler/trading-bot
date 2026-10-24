@@ -101,3 +101,26 @@ def test_live_step_hits_stop_on_next_candle():
     trades = acc.trades()
     assert trades and trades[0]["reason"] == "stop"
     assert trades[0]["pnl"] == pytest.approx(-100.0)
+
+
+def test_live_step_btc_filter_blocks_long_when_btc_falls():
+    from dataclasses import replace
+
+    closes = _uptrend_with_fresh_cross()
+    up, down = _frame(closes), _frame(list(np.linspace(200, 100, len(closes))))
+
+    class TwoCoins(FakeMarket):
+        def closed_candles(self, symbol, timeframe, limit=400):
+            return down if symbol == "BTC/USD" else up
+
+    cfg = _cfg()
+    cfg.symbols = {"BTC": "BTC/USD", "ETH": "ETH/USD"}
+    cfg.strategy = replace(cfg.strategy, btc_filter=10)
+    acc = PaperAccount(":memory:", fee_pct=0.0)
+    step(cfg, TwoCoins(up, price=closes[-1]), acc)
+    assert acc.position("ETH") is None   # ETH hätte ein Long-Signal, aber Bitcoin fällt
+
+    cfg.strategy = replace(cfg.strategy, btc_filter=0)
+    acc2 = PaperAccount(":memory:", fee_pct=0.0)
+    step(cfg, TwoCoins(up, price=closes[-1]), acc2)
+    assert acc2.position("ETH") is not None

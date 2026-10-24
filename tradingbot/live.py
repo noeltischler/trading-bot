@@ -17,7 +17,7 @@ from tradingbot.indicators import atr
 from tradingbot.paper import PaperAccount
 from tradingbot.position import Position
 from tradingbot.storage import CandleStore
-from tradingbot.strategy import FLAT, LONG, signals
+from tradingbot.strategy import FLAT, LONG, signals, uses_btc, with_btc
 
 log = logging.getLogger("tradingbot")
 
@@ -38,10 +38,15 @@ def account_marks(account: PaperAccount, now: float | None = None) -> tuple[floa
 def step(cfg: Config, market, account: PaperAccount, chart: CandleStore | None = None) -> None:
     """Ein Durchlauf über alle Coins. Verarbeitet jede Kerze genau einmal.
     Mit chart werden Kerzen und aktueller Kurs fürs Dashboard gespeichert."""
+    btc = None
+    if uses_btc(cfg.strategy):
+        btc = market.closed_candles(cfg.symbols.get("BTC", "BTC/USD"), cfg.timeframe, limit=cfg.live_bars)
     for coin, symbol in cfg.symbols.items():
         df = market.closed_candles(symbol, cfg.timeframe, limit=cfg.live_bars)
         if df.empty:
             continue
+        if btc is not None:
+            df = with_btc(df, btc)
         if chart is not None:
             chart.upsert(coin, cfg.timeframe, df)
             account.set_state(f"price:{coin}", f"{market.last_price(symbol)}:{int(time.time())}")
