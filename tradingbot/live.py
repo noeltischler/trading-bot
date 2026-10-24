@@ -14,7 +14,7 @@ import pandas as pd
 
 from tradingbot.anchor import anchor_due_days
 from tradingbot.backtest import atr_pcts, entry_risk
-from tradingbot import news
+from tradingbot import news, notify
 from tradingbot.config import Config
 from tradingbot.events import event_near, upcoming_gap
 from tradingbot.indicators import atr
@@ -57,10 +57,17 @@ def fear_greed_now(max_age: float = 3600) -> "pd.DataFrame | None":
 
 
 def step(cfg: Config, market, account: PaperAccount, chart: CandleStore | None = None,
-         fear_greed=fear_greed_now) -> None:
+         fear_greed=fear_greed_now, notify_fn=None) -> None:
     """Ein Durchlauf über alle Coins. Verarbeitet jede Kerze genau einmal.
     Mit chart werden Kerzen und aktueller Kurs fürs Dashboard gespeichert.
-    fear_greed: Funktion, die den Fear & Greed Verlauf liefert (für Tests ersetzbar)."""
+    fear_greed: Funktion, die den Fear & Greed Verlauf liefert (für Tests ersetzbar).
+    notify_fn: notify.send oder None; bekommt (account, Titel, Text, Tags) bei jedem
+    eröffneten und geschlossenen Trade."""
+
+    def tell(text: tuple[str, str, list[str]]) -> None:
+        if notify_fn is not None:
+            notify_fn(account, *text)
+
     fg = fear_greed() if uses_fear_greed(cfg.strategy) or chart is not None else None
     if fg is not None and len(fg):
         last_fg = fg.iloc[-1]
@@ -93,6 +100,7 @@ def step(cfg: Config, market, account: PaperAccount, chart: CandleStore | None =
                 pnl = account.close(coin, hit, reason)
                 log.info("%s %s %s bei %.2f, Ergebnis %+.2f", coin, SIDE_NAME[pos.side],
                          "Gewinnziel" if reason == "target" else "Stop", hit, pnl)
+                tell(notify.closed_text(coin, pos.side == LONG, hit, pnl, reason, account.balance))
                 pos = None
             else:
                 account.save_position(pos)
@@ -106,6 +114,7 @@ def step(cfg: Config, market, account: PaperAccount, chart: CandleStore | None =
                 pnl = account.close(coin, price, "signal")
                 log.info("%s %s geschlossen (Gegensignal) bei %.2f, Ergebnis %+.2f",
                          coin, SIDE_NAME[pos.side], price, pnl)
+                tell(notify.closed_text(coin, pos.side == LONG, price, pnl, "signal", account.balance))
                 pos = None
             bp = cfg.backtest_params()
             peak, day_start = account_marks(account)
@@ -124,6 +133,7 @@ def step(cfg: Config, market, account: PaperAccount, chart: CandleStore | None =
                     account.open(new)
                     log.info("%s %s eröffnet bei %.2f, Menge %.6f, Stop %.2f",
                              coin, SIDE_NAME[sig], price, new.qty, new.stop)
+                    tell(notify.opened_text(coin, sig == LONG, price, new.stop, abs(price - new.stop) * new.qty))
 
         account.set_state(key, str(int(last.time)))
 
@@ -133,11 +143,15 @@ def run_forever(cfg: Config, market, account: PaperAccount, poll_seconds: int = 
     log.info("Bot gestartet: %s, %s, Coins: %s, Kontostand %.2f",
              market.id, cfg.timeframe, ", ".join(cfg.symbols), account.balance)
     last_news = 0.0
+    if cfg.notify:
+        log.info("Handy-Benachrichtigungen: ntfy-Kanal %s", notify.subscribe_url(account))
+        notify.send(account, "Trading-Bot gestartet",
+                    f"{cfg.timeframe}, {len(cfg.symbols)} Coins, Kontostand {account.balance:.2f} $ (Übungskonto)", ["robot"], 2)
     if upcoming_gap(time.time()):
         log.warning("Die Liste der Wirtschaftstermine (tradingbot/events.py) endet bald und muss ergänzt werden.")
     while True:
         try:
-            step(cfg, market, account, chart)
+            step(cfg, market, account, chart, notify_fn=notify.send if cfg.notify else None)
             anchor_due_days(account)
             if time.time() - last_news > 15 * 60:  # Schlagzeilen alle 15 Minuten, nur zum Beobachten
                 last_news = time.time()

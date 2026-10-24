@@ -40,6 +40,7 @@ class Config:
     paper_database: str = "data/paper.db"
     start_equity: float = 10_000.0
     fee_pct: float = 0.1
+    notify: bool = True  # Handy-Benachrichtigung über ntfy bei jedem Trade
     risk: RiskConfig = field(default_factory=RiskConfig)
     # Eine Strategie oder mehrere zusammen (Tupel), siehe strategy.signals
     strategy: StrategyParams | tuple[StrategyParams, ...] = field(default_factory=StrategyParams)
@@ -98,6 +99,7 @@ def load_config(path: str | Path = "config.yaml") -> Config:
         paper_database=str(raw.get("paper_database", "data/paper.db")),
         start_equity=float(raw.get("start_equity", 10_000.0)),
         fee_pct=float(raw.get("fee_pct", 0.1)),
+        notify=bool(raw.get("notify", True)),
         risk=risk,
         strategy=_strategy(raw.get("strategy")),
     )

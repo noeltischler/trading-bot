@@ -117,6 +117,12 @@ Bot tut, steht im Terminal und in `bot.log`. Übungskonto und Trades liegen in
   (−3 bis +3) und zeigt sie im Dashboard. **Nur zur Beobachtung**: Die Nachrichten
   beeinflussen keine Trades, bis die gesammelten Daten zeigen, dass sie helfen.
 
+**Handy-Benachrichtigungen** (`notify: true`, Standard): Bei jedem eröffneten und
+geschlossenen Trade schickt der Bot eine Mitteilung über [ntfy](https://ntfy.sh)
+(Coin, Long/Short, Kurs, Stop bzw. Ergebnis). Der Kanalname wird beim ersten Start
+zufällig erzeugt und steht im Dashboard unter „Benachrichtigungen aufs Handy“.
+In der ntfy-App diesen Kanal abonnieren, fertig.
+
 `backtest` zeigt zusätzlich das **Kelly-Kriterium** (Kelly %): den rechnerisch besten
 Einsatz aus Trefferquote und Gewinn/Verlust-Verhältnis. Negativ heißt: kein Vorteil.
 Positiv: höchstens ein Viertel davon als `risk_per_trade_pct` nehmen.

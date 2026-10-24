@@ -56,3 +56,41 @@ def test_dashboard_shows_headlines_escaped():
     assert "&lt;b&gt;Bitcoin surges&lt;/b&gt;" in page
     assert "javascript:" not in page
     assert "Nachrichtenlage" in page
+
+
+def test_notify_topic_texts_and_dashboard_card():
+    from tradingbot import notify
+
+    acc = PaperAccount(":memory:")
+    t = notify.topic(acc)
+    assert t.startswith("tradingbot-") and len(t) > 30 and notify.topic(acc) == t
+    title, msg, tags = notify.opened_text("SOL", False, 187.4, 193.02, 74.9)
+    assert title == "SOL: SHORT (Leerverkauf) eröffnet" and "187,40" in msg and "193,02" in msg
+    title, msg, _ = notify.closed_text("BTC", True, 101_234.5, -12.5, "stop", 9_800)
+    assert title == "BTC: Long geschlossen, -12,50 $" and "101.234,50" in msg and "Stop" in msg
+    assert t in render(acc, now=1_792_840_000)
+
+
+def test_live_step_notifies_on_open():
+    import numpy as np
+    import pandas as pd
+
+    from tradingbot.config import Config, RiskConfig
+    from tradingbot.live import step
+    from tradingbot.strategy import StrategyParams
+
+    rows = [(100.0, 100.5, 99.5, 100.0)] * 25 + [(100, 100.2, 98.5, 100.1)]
+    o, h, l, c = (np.asarray(x) for x in zip(*rows))
+    df = pd.DataFrame({"time": np.arange(len(c)) * 3600, "open": o, "high": h, "low": l, "close": c, "volume": 1.0})
+
+    class Market:
+        id = "fake"
+        def closed_candles(self, *a, **k): return df
+        def last_price(self, symbol): return 100.1
+
+    cfg = Config(symbols={"BTC": "BTC/USD"}, risk=RiskConfig(stop_pct=2, trailing_stop_pct=2),
+                 strategy=StrategyParams(kind="sweep", lookback=20, use_trend=False))
+    sent = []
+    acc = PaperAccount(":memory:", fee_pct=0.0)
+    step(cfg, Market(), acc, notify_fn=lambda account, title, msg, tags: sent.append(title))
+    assert sent == ["BTC: LONG (Kauf) eröffnet"]

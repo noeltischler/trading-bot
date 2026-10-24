@@ -303,6 +303,20 @@ def _market_html(account: PaperAccount, now: int) -> str:
             f'<table><tr><th>Zeit (UTC)</th><th>Wert</th><th>Schlagzeile</th></tr>{heads}</table></section>')
 
 
+def _notify_html(account: PaperAccount) -> str:
+    """Karte mit dem ntfy-Kanal zum Abonnieren auf dem Handy."""
+    from tradingbot import notify
+
+    t = html.escape(notify.topic(account))
+    return (f'<section class="card"><h2>Benachrichtigungen aufs Handy</h2>'
+            f'<ol style="margin:0;padding-left:20px;line-height:1.6">'
+            f'<li>App <b>ntfy</b> installieren (App Store oder Google Play, kostenlos).</li>'
+            f'<li>In der App auf <b>+</b> tippen und diesen Kanal eintragen:<br>'
+            f'<code class="mono" style="user-select:all;word-break:break-all">{t}</code></li>'
+            f'<li>Server bleibt <b>ntfy.sh</b>, dann „Abonnieren“.</li></ol>'
+            f'<p class="muted" style="margin:8px 0 0">Der Kanalname ist wie ein Passwort: nicht weitergeben.</p></section>')
+
+
 def render(account: PaperAccount, title: str = "Trading-Bot", period: str | None = None, now: int | None = None) -> str:
     balance, start = account.balance, account.start_equity
     change = 100 * (balance / start - 1)
@@ -355,6 +369,7 @@ def render(account: PaperAccount, title: str = "Trading-Bot", period: str | None
 <section class="card"><h2>Kontoverlauf · {label}</h2>{equity_svg(points)}</section>
 <section class="card"><h2>Offene Positionen</h2><table><tr><th>Coin</th><th>Seite</th><th>Einstieg</th><th>Stop</th><th>Seit</th></tr>{pos_rows}</table></section>
 <section class="card"><h2>Letzte Trades</h2>{_trade_table(trades[-10:])}<p style="margin:10px 0 0"><a href="/trades">Alle Trades →</a></p></section>
+{_notify_html(account)}
 <section class="card"><h2>Blockchain-Nachweise</h2><table><tr><th>Tag</th><th>Fingerabdruck</th><th>Transaktion</th></tr>{anchor_rows}</table></section>"""
     return _page(title, "overview", body)
 
