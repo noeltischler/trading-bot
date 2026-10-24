@@ -14,8 +14,9 @@ import pandas as pd
 
 from tradingbot.anchor import anchor_due_days
 from tradingbot.backtest import atr_pcts, entry_risk
+from tradingbot import news
 from tradingbot.config import Config
-from tradingbot.events import event_near
+from tradingbot.events import event_near, upcoming_gap
 from tradingbot.indicators import atr
 from tradingbot.paper import PaperAccount
 from tradingbot.position import Position
@@ -131,10 +132,18 @@ def run_forever(cfg: Config, market, account: PaperAccount, poll_seconds: int = 
                 chart: CandleStore | None = None) -> None:
     log.info("Bot gestartet: %s, %s, Coins: %s, Kontostand %.2f",
              market.id, cfg.timeframe, ", ".join(cfg.symbols), account.balance)
+    last_news = 0.0
+    if upcoming_gap(time.time()):
+        log.warning("Die Liste der Wirtschaftstermine (tradingbot/events.py) endet bald und muss ergänzt werden.")
     while True:
         try:
             step(cfg, market, account, chart)
             anchor_due_days(account)
+            if time.time() - last_news > 15 * 60:  # Schlagzeilen alle 15 Minuten, nur zum Beobachten
+                last_news = time.time()
+                n = news.save(account.conn, news.fetch_all(log=log))
+                if n:
+                    log.info("%d neue Schlagzeilen gespeichert", n)
         except Exception:  # Netzwerkfehler usw. dürfen den Dauerbetrieb nicht beenden
             log.exception("Fehler im Durchlauf, neuer Versuch in %s s", poll_seconds)
         time.sleep(poll_seconds)

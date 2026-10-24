@@ -281,8 +281,26 @@ def _market_html(account: PaperAccount, now: int) -> str:
     note = f'<p class="down" style="margin:0 0 8px">Gerade wichtiger Termin: {html.escape(current)}</p>' if current else ""
     rows = "".join(f"<tr><td>{_fmt_time(t)}</td><td>{html.escape(name)}</td></tr>" for t, name in next_events(now, 3)) \
         or "<tr><td colspan='2' class='muted'>Keine Termine eingetragen</td></tr>"
+    from tradingbot import news
+
+    items = news.recent(account.conn, now - 86400)
+    m = news.mood(items)
+    if m is None:
+        mood_txt = "noch keine bewerteten Schlagzeilen"
+    else:
+        word = "eher positiv" if m >= 0.5 else "eher negativ" if m <= -0.5 else "gemischt"
+        mood_txt = f'<b class="{"up" if m > 0 else "down" if m < 0 else ""}">{_signed(m, 2)} ({word})</b>'
+    heads = "".join(
+        f"<tr><td>{_fmt_time(i['published'])}</td><td class='{'up' if i['score'] > 0 else 'down' if i['score'] < 0 else 'muted'}'>{_signed(i['score'], 0)}</td>"
+        f"<td><a href='{html.escape(i['link'])}' rel='noopener noreferrer' target='_blank'>{html.escape(i['title'])}</a>"
+        f"<div class='muted' style='font-size:12px'>{html.escape(i['source'])}</div></td></tr>"
+        for i in items[:8] if i["link"].startswith(("http://", "https://"))
+    ) or "<tr><td colspan='3' class='muted'>Noch keine Schlagzeilen (werden alle 15 Minuten geladen)</td></tr>"
     return (f'<section class="card"><h2>Marktlage</h2>{fg}{note}'
-            f'<table><tr><th>Nächste Termine (UTC)</th><th></th></tr>{rows}</table></section>')
+            f'<table><tr><th>Nächste Termine (UTC)</th><th></th></tr>{rows}</table></section>'
+            f'<section class="card"><h2>Nachrichtenlage (nur zur Beobachtung, kein Einfluss auf Trades)</h2>'
+            f'<p style="margin:0 0 8px">Stimmung der letzten 24 Stunden: {mood_txt} · {len(items)} Schlagzeilen</p>'
+            f'<table><tr><th>Zeit (UTC)</th><th>Wert</th><th>Schlagzeile</th></tr>{heads}</table></section>')
 
 
 def render(account: PaperAccount, title: str = "Trading-Bot", period: str | None = None, now: int | None = None) -> str:
