@@ -149,3 +149,11 @@ def test_telegram_chats_reads_updates(monkeypatch):
     monkeypatch.setattr(notify, "_post_json", lambda url, data, timeout: {"ok": True, "result": [
         {"update_id": 1, "message": {"chat": {"id": 987, "first_name": "Noel"}, "text": "hallo"}}]})
     assert notify.telegram_chats("123:abc") == [("987", "Noel")]
+
+
+def test_telegram_token_is_cleaned():
+    good = "9044864397:" + "A" * 34 + "_"
+    assert notify.clean_token(good) == good
+    assert notify.clean_token(" x" + good + " \r") == good
+    assert notify.clean_token("unsinn") == "unsinn"
+    assert notify.telegram_config({"TELEGRAM_TOKEN": "z" + good})[0] == good
