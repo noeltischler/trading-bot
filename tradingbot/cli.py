@@ -151,10 +151,12 @@ def cmd_status(args) -> int:
     print(f"Kontostand: {acc.balance:.2f} USD ({change:+.2f} %), {len(trades)} abgeschlossene Trades")
     for coin, p in acc.positions().items():
         side = "LONG" if p.side == LONG else "SHORT"
-        print(f"  offen: {coin} {side} seit {_fmt(p.opened_at)}, Einstieg {p.entry:.2f}, Stop {p.stop:.2f}")
+        print(f"  offen: {coin} {side} seit {_fmt(p.opened_at)}, Einstieg {p.entry:.2f}, Stop {p.stop:.2f}"
+              + (f", {p.strategy}" if p.strategy else ""))
     for t in trades[-10:]:
         side = "LONG" if t["side"] == LONG else "SHORT"
-        print(f"  {_fmt(t['closed_at'])} {t['coin']:<5}{side:<6} {t['entry']:.2f} → {t['exit']:.2f}  {t['pnl']:+.2f} ({t['reason']})")
+        print(f"  {_fmt(t['closed_at'])} {t['coin']:<5}{side:<6} {t['entry']:.2f} → {t['exit']:.2f}  {t['pnl']:+.2f} ({t['reason']})"
+              + (f", {t['strategy']}" if t.get("strategy") else ""))
     return 0
 
 

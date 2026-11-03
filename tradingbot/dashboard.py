@@ -344,9 +344,10 @@ def render(account: PaperAccount, title: str = "Trading-Bot", period: str | None
 
     pos_rows = "".join(
         f"<tr><td><a href='/chart?coin={quote(c)}'>{html.escape(c)}</a></td><td class='{'up' if p.side == LONG else 'down'}'>{'Long' if p.side == LONG else 'Short'}</td>"
-        f"<td>{_money(p.entry)}</td><td>{_money(p.stop)}</td><td>{_fmt_time(p.opened_at)}</td></tr>"
+        f"<td>{_money(p.entry)}</td><td>{_money(p.stop)}</td><td>{_fmt_time(p.opened_at)}</td>"
+        f"<td>{html.escape(p.strategy or '–')}</td></tr>"
         for c, p in positions.items()
-    ) or "<tr><td colspan='5' class='muted'>Keine offene Position</td></tr>"
+    ) or "<tr><td colspan='6' class='muted'>Keine offene Position</td></tr>"
 
     anchor_rows = "".join(
         f"<tr><td>{html.escape(a['day'])}</td><td class='mono'>{a['hash'][:16]}…</td>"
@@ -367,7 +368,7 @@ def render(account: PaperAccount, title: str = "Trading-Bot", period: str | None
 {_stats_html(_stats(in_period))}
 <p style="margin:10px 0 0"><a href="/trades?p={period}">Diese Trades ansehen →</a></p></section>
 <section class="card"><h2>Kontoverlauf · {label}</h2>{equity_svg(points)}</section>
-<section class="card"><h2>Offene Positionen</h2><table><tr><th>Coin</th><th>Seite</th><th>Einstieg</th><th>Stop</th><th>Seit</th></tr>{pos_rows}</table></section>
+<section class="card"><h2>Offene Positionen</h2><table><tr><th>Coin</th><th>Seite</th><th>Einstieg</th><th>Stop</th><th>Seit</th><th>Strategie</th></tr>{pos_rows}</table></section>
 <section class="card"><h2>Letzte Trades</h2>{_trade_table(trades[-10:])}<p style="margin:10px 0 0"><a href="/trades">Alle Trades →</a></p></section>
 {_notify_html(account)}
 <section class="card"><h2>Blockchain-Nachweise</h2><table><tr><th>Tag</th><th>Fingerabdruck</th><th>Transaktion</th></tr>{anchor_rows}</table></section>"""
@@ -577,6 +578,7 @@ def _trade_detail(t: dict) -> str:
         ("Dauer", _duration(t["closed_at"] - t["opened_at"])), ("Menge", f"{t['qty']:.6g}"),
         ("Einstieg", f"{_money(t['entry'])} $"), ("Ausstieg", f"{_money(t['exit'])} $"),
         ("Bewegung", f"{_signed(_move_pct(t))} %"), ("Grund", REASONS.get(t["reason"], html.escape(t["reason"]))),
+        ("Strategie", html.escape(t.get("strategy") or "–")),
         ("Ergebnis", f"<span class='{'up' if t['pnl'] > 0 else 'down'}'>{_signed(t['pnl'])} $</span>"),
         ("Kontostand danach", f"{_money(t['balance'])} $"),
     ]
@@ -631,11 +633,12 @@ def render_trades(account: PaperAccount, title: str = "Trading-Bot", coin: str |
         f"<td class='{'up' if t['pnl'] > 0 else 'down'}'>{_signed(t['pnl'])}</td><td>{_signed(_move_pct(t))} %</td>"
         f"<td>{_fmt_time(t['opened_at'])}</td><td>{_fmt_time(t['closed_at'])}</td><td>{_duration(t['closed_at'] - t['opened_at'])}</td>"
         f"<td>{_money(t['entry'])}</td><td>{_money(t['exit'])}</td>"
-        f"<td>{REASONS.get(t['reason'], html.escape(t['reason']))}</td><td>{_money(t['balance'])}</td></tr>"
+        f"<td>{REASONS.get(t['reason'], html.escape(t['reason']))}</td><td>{html.escape(t.get('strategy') or '–')}</td>"
+        f"<td>{_money(t['balance'])}</td></tr>"
         for t in reversed(shown)
-    ) or "<tr><td colspan='12' class='muted'>Keine Trades für diese Auswahl</td></tr>"
+    ) or "<tr><td colspan='13' class='muted'>Keine Trades für diese Auswahl</td></tr>"
     head = ("<tr><th>Chart</th><th>Coin</th><th>Seite</th><th>Ergebnis $</th><th>Bewegung</th><th>Eröffnet</th><th>Geschlossen</th>"
-            "<th>Dauer</th><th>Einstieg</th><th>Ausstieg</th><th>Grund</th><th>Kontostand</th></tr>")
+            "<th>Dauer</th><th>Einstieg</th><th>Ausstieg</th><th>Grund</th><th>Strategie</th><th>Kontostand</th></tr>")
     body = f"""<section class="card"><div class="filters">{filters}</div>{_stats_html(_stats(shown))}</section>
 <section class="card"><h2>{len(shown)} Trades · Zeiten in UTC · <a href="{url("/trades.csv")}">als CSV herunterladen</a></h2>
 <table>{head}{rows}</table></section>"""
@@ -644,13 +647,14 @@ def render_trades(account: PaperAccount, title: str = "Trading-Bot", coin: str |
 
 def trades_csv(trades: list[dict]) -> str:
     """Trades als CSV (Semikolon, Dezimalkomma) für Excel/Numbers."""
-    lines = ["Nr;Eröffnet (UTC);Geschlossen (UTC);Coin;Seite;Menge;Einstieg;Ausstieg;Bewegung %;Ergebnis $;Grund;Kontostand"]
+    lines = ["Nr;Eröffnet (UTC);Geschlossen (UTC);Coin;Seite;Menge;Einstieg;Ausstieg;Bewegung %;Ergebnis $;Grund;Kontostand;Strategie"]
     for t in trades:
         cells = [t["id"], datetime.fromtimestamp(t["opened_at"], timezone.utc).strftime("%Y-%m-%d %H:%M"),
                  datetime.fromtimestamp(t["closed_at"], timezone.utc).strftime("%Y-%m-%d %H:%M"), t["coin"],
                  "Long" if t["side"] == LONG else "Short", f"{t['qty']:.8g}", f"{t['entry']:.8g}", f"{t['exit']:.8g}",
                  f"{_move_pct(t):.3f}", f"{t['pnl']:.2f}", REASONS.get(t["reason"], t["reason"]), f"{t['balance']:.2f}"]
-        lines.append(";".join(str(c).replace(".", ",") if i >= 5 else str(c) for i, c in enumerate(cells)))
+        cells = [str(c).replace(".", ",") if i >= 5 else str(c) for i, c in enumerate(cells)]
+        lines.append(";".join(cells + [t.get("strategy") or ""]))
     return "\n".join(lines) + "\n"
 
 

@@ -101,6 +101,7 @@ def test_live_step_hits_stop_on_next_candle():
     trades = acc.trades()
     assert trades and trades[0]["reason"] == "stop"
     assert trades[0]["pnl"] == pytest.approx(-100.0)
+    assert trades[0]["strategy"] == "EMA 3/6"  # die auslösende Strategie wird mitgespeichert
 
 
 def test_live_step_btc_filter_blocks_long_when_btc_falls():
@@ -124,3 +125,45 @@ def test_live_step_btc_filter_blocks_long_when_btc_falls():
     acc2 = PaperAccount(":memory:", fee_pct=0.0)
     step(cfg, TwoCoins(up, price=closes[-1]), acc2)
     assert acc2.position("ETH") is not None
+
+
+def test_last_signal_names_first_strategy_with_signal():
+    from tradingbot.strategy import FLAT, last_signal, signals
+
+    closes = _uptrend_with_fresh_cross()
+    df = _frame(closes)
+    ema_ = _cfg().strategy
+    quiet = StrategyParams(kind="breakout", lookback=500)  # zu lang, nie ein Signal
+    assert last_signal(df, [quiet, ema_]) == (LONG, "EMA 3/6")
+    assert last_signal(df, [quiet]) == (FLAT, "")
+    assert last_signal(df, [quiet, ema_])[0] == signals(df, [quiet, ema_]).iloc[-1]
+
+
+def test_old_account_gets_strategy_column_and_keeps_fingerprints(tmp_path):
+    import sqlite3
+
+    from tradingbot.anchor import GENESIS, digest, verify
+
+    path = tmp_path / "paper.db"
+    old = sqlite3.connect(path)  # Konto im alten Format ohne Spalte strategy
+    old.executescript("""
+        CREATE TABLE trades (id INTEGER PRIMARY KEY AUTOINCREMENT, coin TEXT NOT NULL, side INTEGER NOT NULL,
+            qty REAL NOT NULL, entry REAL NOT NULL, exit REAL NOT NULL, opened_at INTEGER NOT NULL,
+            closed_at INTEGER NOT NULL, pnl REAL NOT NULL, reason TEXT NOT NULL, balance REAL NOT NULL);
+        INSERT INTO trades (coin, side, qty, entry, exit, opened_at, closed_at, pnl, reason, balance)
+            VALUES ('BTC', 1, 1.0, 100.0, 99.0, 0, 3600, -1.0, 'stop', 9999.0);
+    """)
+    old_rows = [dict(zip([c[0] for c in old.execute("SELECT * FROM trades").description], r))
+                for r in old.execute("SELECT * FROM trades")]
+    before = digest(old_rows, "1970-01-01", GENESIS)
+    old.execute("CREATE TABLE anchors (day TEXT PRIMARY KEY, hash TEXT NOT NULL, prev TEXT NOT NULL, tx_url TEXT)")
+    old.execute("INSERT INTO anchors VALUES ('1970-01-01', ?, ?, NULL)", (before, GENESIS))
+    old.commit()
+    old.close()
+
+    acc = PaperAccount(path)
+    assert acc.trades()[0]["strategy"] == ""
+    assert verify(acc) == []
+    acc.open(Position.open("ETH", LONG, 100.0, acc.balance, 1.0, 1.0, 7200, strategy="RSI-2 10/90"))
+    acc.close("ETH", 101.0, "stop", when=10_000)
+    assert acc.trades()[-1]["strategy"] == "RSI-2 10/90"

@@ -36,7 +36,10 @@ def _day_end(day: str) -> int:
 
 def digest(trades: list[dict], day: str, prev: str) -> str:
     """Fingerabdruck über alle Trades, die vor Ende von `day` geschlossen wurden."""
-    rows = [t for t in trades if t["closed_at"] < _day_end(day)]
+    # Leeres Feld strategy weglassen: Trades von vor November 2026 hatten es nicht,
+    # ihre alten Fingerabdrücke bleiben so gültig.
+    rows = [{k: v for k, v in t.items() if v != "" or k != "strategy"}
+            for t in trades if t["closed_at"] < _day_end(day)]
     payload = json.dumps({"day": day, "prev": prev, "trades": rows}, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(payload.encode()).hexdigest()
 

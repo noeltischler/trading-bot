@@ -31,7 +31,8 @@ CREATE TABLE IF NOT EXISTS trades (
     closed_at  INTEGER NOT NULL,
     pnl        REAL NOT NULL,
     reason     TEXT NOT NULL,
-    balance    REAL NOT NULL
+    balance    REAL NOT NULL,
+    strategy   TEXT NOT NULL DEFAULT ''
 );
 CREATE TABLE IF NOT EXISTS anchors (
     day     TEXT PRIMARY KEY,   -- YYYY-MM-DD (UTC), umfasst alle Trades bis Tagesende
@@ -53,6 +54,13 @@ class PaperAccount:
             path.parent.mkdir(parents=True, exist_ok=True)
         self.conn = sqlite3.connect(str(path))
         self.conn.executescript(_SCHEMA)
+        cols = {r[1] for r in self.conn.execute("PRAGMA table_info(trades)")}
+        if "strategy" not in cols:  # Konten von vor November 2026
+            try:
+                with self.conn:
+                    self.conn.execute("ALTER TABLE trades ADD COLUMN strategy TEXT NOT NULL DEFAULT ''")
+            except sqlite3.OperationalError:  # Bot und Dashboard starten gleichzeitig: schon ergänzt
+                pass
         self.fee_pct = fee_pct
         with self.conn:
             self.conn.execute(
@@ -97,9 +105,9 @@ class PaperAccount:
             self.conn.execute("UPDATE account SET balance = balance + ?", (pnl,))
             balance = self.balance
             self.conn.execute(
-                "INSERT INTO trades (coin, side, qty, entry, exit, opened_at, closed_at, pnl, reason, balance)"
-                " VALUES (?,?,?,?,?,?,?,?,?,?)",
-                (coin, pos.side, pos.qty, pos.entry, price, pos.opened_at, when, pnl, reason, balance),
+                "INSERT INTO trades (coin, side, qty, entry, exit, opened_at, closed_at, pnl, reason, balance, strategy)"
+                " VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                (coin, pos.side, pos.qty, pos.entry, price, pos.opened_at, when, pnl, reason, balance, pos.strategy),
             )
             self.conn.execute("DELETE FROM positions WHERE coin = ?", (coin,))
         return pnl

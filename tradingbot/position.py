@@ -23,12 +23,13 @@ class Position:
     opened_at: int
     target: float = 0.0      # Gewinnziel (0 = keins)
     trail_pct: float = 0.0   # eigener Trailing-Abstand dieser Position (0 = Wert aus der Config)
+    strategy: str = ""       # Strategie, die den Trade ausgelöst hat (z. B. "RSI-2 10/90")
 
     @classmethod
     def open(cls, coin: str, side: int, price: float, equity: float,
              risk_pct: float, stop_pct: float, time: int,
              take_profit_r: float = 0.0, trail_pct: float = 0.0,
-             max_position_pct: float = 0.0) -> "Position | None":
+             max_position_pct: float = 0.0, strategy: str = "") -> "Position | None":
         """take_profit_r: Gewinnziel als Vielfaches des Stop-Abstands (2 = doppelt so
         weit wie der Stop). max_position_pct: Positionswert höchstens so viel Prozent
         vom Konto, auch wenn der Stop sehr eng ist (0 = keine Grenze)."""
@@ -39,7 +40,7 @@ class Position:
         if qty <= 0:
             return None
         target = price + side * take_profit_r * abs(price - stop) if take_profit_r > 0 else 0.0
-        return cls(coin, side, price, qty, stop, price, time, target, trail_pct)
+        return cls(coin, side, price, qty, stop, price, time, target, trail_pct, strategy)
 
     def on_candle(self, open_: float, high: float, low: float, trail_pct: float) -> float | None:
         """Prüft eine abgeschlossene Kerze. Gibt den Ausführungskurs zurück, wenn
