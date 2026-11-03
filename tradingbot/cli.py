@@ -170,11 +170,18 @@ def cmd_status(args) -> int:
 
 
 def cmd_dashboard(args) -> int:
-    from tradingbot.dashboard import serve
+    from tradingbot.dashboard import Bot, serve
 
-    cfg = load_config(args.config)
-    serve(cfg.paper_database, cfg.start_equity, cfg.fee_pct, port=args.port, host=args.host,
-          coins=list(cfg.symbols), timeframe=cfg.timeframe, title=cfg.name)
+    bots = []
+    for i, path in enumerate([args.config] + (args.also or [])):
+        if i and not Path(path).exists():
+            print(f"{path} fehlt, wird im Dashboard weggelassen.")
+            continue
+        cfg = load_config(path)
+        label = "Krypto" if cfg.name == "Trading-Bot" else cfg.name.removesuffix("-Bot")
+        bots.append(Bot(Path(path).stem.lower(), label, cfg.name, cfg.paper_database, cfg.start_equity,
+                        cfg.fee_pct, list(cfg.symbols), cfg.timeframe))
+    serve(port=args.port, host=args.host, bots=bots)
     return 0
 
 
@@ -282,6 +289,7 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_parser("status", help="Kontostand, offene Positionen und letzte Trades anzeigen")
     db = sub.add_parser("dashboard", help="Dashboard als Webseite starten")
     db.add_argument("--port", type=int, default=8080)
+    db.add_argument("--also", action="append", help="weiteres Konto zeigen, z. B. --also gold.yaml (mehrfach möglich)")
     db.add_argument("--host", default="127.0.0.1", help="0.0.0.0 = auch aus dem Netzwerk erreichbar")
     sub.add_parser("verify", help="Trade-Protokoll gegen die Tagesnachweise prüfen")
     sub.add_parser("telegram", help="Telegram-Benachrichtigungen einrichten und testen (als root auf dem Server)")

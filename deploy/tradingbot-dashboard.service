@@ -6,7 +6,7 @@ After=network-online.target
 User=bot
 WorkingDirectory=/opt/trading-bot
 EnvironmentFile=/etc/tradingbot.env
-ExecStart=/opt/trading-bot/.venv/bin/python -m tradingbot dashboard --port 8080
+ExecStart=/opt/trading-bot/.venv/bin/python -m tradingbot dashboard --port 8080 --also gold.yaml
 Restart=always
 RestartSec=10
 

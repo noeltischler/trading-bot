@@ -49,10 +49,14 @@ echo "==> Dienste"
 cp "$APP/deploy/tradingbot.service" /etc/systemd/system/
 cp "$APP/deploy/tradingbot-dashboard.service" /etc/systemd/system/
 cp "$APP/deploy/tradingbot-gold.service" /etc/systemd/system/
-cp "$APP/deploy/tradingbot-gold-dashboard.service" /etc/systemd/system/
+# Früher hatte der Gold-Bot ein eigenes Dashboard; jetzt ist er im gemeinsamen Dashboard (/gold)
+if [ -f /etc/systemd/system/tradingbot-gold-dashboard.service ]; then
+  systemctl disable --now tradingbot-gold-dashboard || true
+  rm -f /etc/systemd/system/tradingbot-gold-dashboard.service
+fi
 systemctl daemon-reload
-systemctl enable --now tradingbot tradingbot-dashboard tradingbot-gold tradingbot-gold-dashboard
-systemctl restart tradingbot tradingbot-dashboard tradingbot-gold tradingbot-gold-dashboard
+systemctl enable --now tradingbot tradingbot-dashboard tradingbot-gold
+systemctl restart tradingbot tradingbot-dashboard tradingbot-gold
 
 echo "==> HTTPS über sslip.io"
 IP="$(curl -4 -s https://ifconfig.me || hostname -I | awk '{print $1}')"
@@ -62,7 +66,7 @@ $HOST {
     reverse_proxy 127.0.0.1:8080
 }
 gold.$HOST {
-    reverse_proxy 127.0.0.1:8081
+    redir https://$HOST/gold/
 }
 CADDY
 systemctl reload caddy || systemctl restart caddy
@@ -78,7 +82,7 @@ ufw --force enable >/dev/null
 echo
 echo "Fertig! Der Bot läuft rund um die Uhr."
 echo "Dashboard:  https://$HOST"
-echo "Gold-Bot:   https://gold.$HOST"
+echo "            oben umschalten: Krypto | Gold  (Gold direkt: https://$HOST/gold/)"
 echo "Benutzer:   beliebig (z. B. noel)"
 echo "Passwort:   $DASHBOARD_PASSWORD"
 echo

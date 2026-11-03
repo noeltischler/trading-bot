@@ -191,9 +191,9 @@ erneut ausführen; Übungskonto, `config.yaml` und Passwort bleiben erhalten.
 
 Neben dem Krypto-Bot läuft ein zweiter Bot nur für Gold (PAXG/USD bei Kraken, 1 PAXG =
 1 Feinunze, läuft praktisch wie XAUUSD). Gleicher Code, aber eigenes Übungskonto, eigene
-Einstellungen (`/opt/trading-bot/gold.yaml`, Vorlage `config.gold.yaml`) und eigene Dienste:
-`tradingbot-gold` und `tradingbot-gold-dashboard`. Das Dashboard liegt unter
-`https://gold.…sslip.io` (gleiches Passwort). Trades kommen über dieselben Kanäle
+Einstellungen (`/opt/trading-bot/gold.yaml`, Vorlage `config.gold.yaml`) und eigenen Dienst
+`tradingbot-gold`. Im Dashboard schaltest du oben zwischen **Krypto** und **Gold** um
+(Gold direkt: `https://…sslip.io/gold/`). Trades kommen über dieselben Kanäle
 (Telegram/ntfy) aufs Handy. Strategie: Tageskerzen, Ausbruch über das 20-Tage-Hoch im
 Aufwärtstrend, nur Long. Er handelt selten (im Test etwa sechsmal pro Jahr).
 
