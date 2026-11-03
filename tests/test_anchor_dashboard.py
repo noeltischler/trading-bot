@@ -185,3 +185,21 @@ def test_chart_zooms_to_single_trade():
     page = render_chart(acc, store, ["BTC", "ETH"], "1h", trade_id=btc[0]["id"], now=now)
     assert f"Trade #{btc[0]['id']}" in page and "Zurück zum ganzen Chart" in page and "class='hl'" in page
     assert page.count("<rect") < 200  # nur ein Ausschnitt, nicht 30 Tage
+
+
+def test_one_dashboard_for_two_bots(tmp_path):
+    from tradingbot.dashboard import Bot, page_for, route
+
+    bots = [Bot("config", "Krypto", "Trading-Bot", str(tmp_path / "a.db"), 10000, 0.1, ["BTC"], "4h"),
+            Bot("gold", "Gold", "Gold-Bot", str(tmp_path / "g.db"), 10000, 0.1, ["GOLD"], "1d")]
+    assert route(bots, "/") == (bots[0], "/")
+    assert route(bots, "/gold") == (bots[1], "/")
+    assert route(bots, "/gold/trades") == (bots[1], "/trades")
+    assert route(bots, "/gold/x") is None and route(bots, "/x") is None
+    page, _ = page_for(bots, bots[1], "/", {})
+    assert "Gold-Bot" in page and 'href="/gold/trades' in page
+    assert '<nav class="tabs bots"><a href="/" class="">Krypto</a><a href="/gold" class="on">Gold</a>' in page
+    page, _ = page_for(bots, bots[0], "/chart", {})
+    assert 'href="/gold' not in page.replace('href="/gold" class=""', "")
+    csv, ctype = page_for(bots, bots[1], "/trades.csv", {})
+    assert ctype.startswith("text/csv")

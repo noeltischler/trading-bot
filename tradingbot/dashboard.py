@@ -12,6 +12,7 @@ import base64
 import hmac
 import html
 import os
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, quote, urlparse
@@ -82,6 +83,7 @@ table { width:100%; border-collapse:collapse; font-size:14px } td,th { padding:6
 .chart { width:100%; height:auto } .line { fill:none; stroke:var(--accent); stroke-width:2 } .baseline { stroke:var(--line); stroke-dasharray:4 4 }
 a { color:var(--accent) } footer { color:var(--muted); font-size:12px; text-align:center; margin:8px 0 24px }
 nav.tabs, .pills { display:flex; gap:6px; flex-wrap:wrap; margin-bottom:12px }
+nav.bots a { font-weight:600; padding:8px 18px }
 nav.tabs a, .pills a { padding:6px 14px; border-radius:999px; border:1px solid var(--line); background:var(--card); color:var(--text); text-decoration:none; font-size:14px }
 nav.tabs a.on, .pills a.on { background:var(--accent); border-color:var(--accent); color:#fff }
 .pills.small a { padding:4px 10px; font-size:13px }
@@ -661,10 +663,82 @@ def trades_csv(trades: list[dict]) -> str:
     return "\n".join(lines) + "\n"
 
 
-def serve(db_path: str, start_equity: float, fee_pct: float, port: int = 8080,
+@dataclass
+class Bot:
+    """Ein Konto im Dashboard. Der erste Bot liegt unter /, jeder weitere unter /<slug>/."""
+    slug: str
+    label: str           # Name im Umschalter, z. B. "Krypto" oder "Gold"
+    title: str           # Seitentitel, z. B. "Gold-Bot"
+    db_path: str
+    start_equity: float
+    fee_pct: float
+    coins: list[str] = field(default_factory=list)
+    timeframe: str = "1h"
+
+    def prefix(self, first: bool) -> str:
+        return "" if first else f"/{self.slug}"
+
+
+PAGES = ("/", "/index.html", "/chart", "/trades", "/trades.csv")
+
+
+def route(bots: list[Bot], path: str) -> tuple[Bot, str] | None:
+    """Welcher Bot und welche Seite zu einem Pfad gehört, None = gibt es nicht."""
+    for bot in bots[1:]:
+        p = bot.prefix(False)
+        if path == p or path.startswith(p + "/"):
+            sub = path[len(p):] or "/"
+            return (bot, sub) if sub in PAGES else None
+    return (bots[0], path) if path in PAGES else None
+
+
+def bot_switch(bots: list[Bot], current: Bot) -> str:
+    if len(bots) < 2:
+        return ""
+    links = "".join(
+        f'<a href="{b.prefix(i == 0) or "/"}" class="{"on" if b is current else ""}">{html.escape(b.label)}</a>'
+        for i, b in enumerate(bots))
+    return f'<nav class="tabs bots">{links}</nav>'
+
+
+def page_for(bots: list[Bot], bot: Bot, path: str, query: dict) -> tuple[str, str]:
+    """(Inhalt, Content-Type) einer Seite. Links zeigen beim zweiten Bot auf /<slug>/…"""
+
+    def arg(name):
+        return query.get(name, [None])[0]
+
+    account = PaperAccount(bot.db_path, bot.start_equity, bot.fee_pct)
+    try:
+        if path == "/chart":
+            candles = CandleStore(bot.db_path)
+            try:
+                trade = arg("trade")
+                page = render_chart(account, candles, bot.coins, bot.timeframe, arg("coin"), arg("range"), bot.title,
+                                    trade_id=int(trade) if trade and trade.isdigit() else None)
+            finally:
+                candles.close()
+        elif path == "/trades":
+            page = render_trades(account, bot.title, arg("coin"), arg("side"), arg("result"), arg("p"))
+        elif path == "/trades.csv":
+            return (trades_csv(filter_trades(account.trades(), arg("coin"), arg("side"), arg("result"), arg("p"))),
+                    "text/csv; charset=utf-8")
+        else:
+            page = render(account, bot.title, arg("p"))
+    finally:
+        account.close_db()
+    prefix = bot.prefix(bot is bots[0])
+    if prefix:
+        page = page.replace('href="/', f'href="{prefix}/').replace("href='/", f"href='{prefix}/")
+    page = page.replace("<main>", "<main>" + bot_switch(bots, bot), 1)
+    return page, "text/html; charset=utf-8"
+
+
+def serve(db_path: str | None = None, start_equity: float = 10_000.0, fee_pct: float = 0.1, port: int = 8080,
           password: str | None = None, title: str = "Trading-Bot", host: str = "127.0.0.1",
-          coins: list[str] | None = None, timeframe: str = "1h") -> None:
+          coins: list[str] | None = None, timeframe: str = "1h", bots: list[Bot] | None = None) -> None:
+    """Mit bots: mehrere Konten in einem Dashboard, oben umschaltbar."""
     password = password if password is not None else os.getenv("DASHBOARD_PASSWORD")
+    bots = bots or [Bot("main", title, title, db_path, start_equity, fee_pct, coins or [], timeframe)]
 
     class Handler(BaseHTTPRequestHandler):
         def do_GET(self):  # noqa: N802
@@ -674,39 +748,18 @@ def serve(db_path: str, start_equity: float, fee_pct: float, port: int = 8080,
                 self.end_headers()
                 return
             url = urlparse(self.path)
-            if url.path not in ("/", "/index.html", "/chart", "/trades", "/trades.csv"):
+            found = route(bots, url.path)
+            if found is None:
                 self.send_response(404)
                 self.end_headers()
                 return
-            query = parse_qs(url.query)
-
-            def arg(name):
-                return query.get(name, [None])[0]
-
-            content_type = "text/html; charset=utf-8"
-            account = PaperAccount(db_path, start_equity, fee_pct)
-            try:
-                if url.path == "/chart":
-                    candles = CandleStore(db_path)
-                    try:
-                        trade = arg("trade")
-                        page = render_chart(account, candles, coins or [], timeframe, arg("coin"), arg("range"), title,
-                                            trade_id=int(trade) if trade and trade.isdigit() else None)
-                    finally:
-                        candles.close()
-                elif url.path == "/trades":
-                    page = render_trades(account, title, arg("coin"), arg("side"), arg("result"), arg("p"))
-                elif url.path == "/trades.csv":
-                    page = trades_csv(filter_trades(account.trades(), arg("coin"), arg("side"), arg("result"), arg("p")))
-                    content_type = "text/csv; charset=utf-8"
-                else:
-                    page = render(account, title, arg("p"))
-                body = page.encode("utf-8-sig" if url.path == "/trades.csv" else "utf-8")
-            finally:
-                account.close_db()
+            bot, path = found
+            page, content_type = page_for(bots, bot, path, parse_qs(url.query))
+            csv = path == "/trades.csv"
+            body = page.encode("utf-8-sig" if csv else "utf-8")
             self.send_response(200)
             self.send_header("Content-Type", content_type)
-            if url.path == "/trades.csv":
+            if csv:
                 self.send_header("Content-Disposition", 'attachment; filename="trades.csv"')
             self.send_header("Content-Length", str(len(body)))
             self.end_headers()
