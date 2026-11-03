@@ -308,7 +308,10 @@ def _notify_html(account: PaperAccount) -> str:
     from tradingbot import notify
 
     t = html.escape(notify.topic(account))
-    return (f'<section class="card"><h2>Benachrichtigungen aufs Handy</h2>'
+    token, chat_id = notify.telegram_config()
+    tg = ("<p style='margin:0 0 8px'><b>Telegram ist eingerichtet</b>: Jeder Trade kommt auch als Telegram-Nachricht.</p>"
+          if token and chat_id else "")
+    return (f'<section class="card"><h2>Benachrichtigungen aufs Handy</h2>{tg}'
             f'<ol style="margin:0;padding-left:20px;line-height:1.6">'
             f'<li>App <b>ntfy</b> installieren (App Store oder Google Play, kostenlos).</li>'
             f'<li>In der App auf <b>+</b> tippen und diesen Kanal eintragen:<br>'

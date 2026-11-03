@@ -128,6 +128,12 @@ geschlossenen Trade schickt der Bot eine Mitteilung über [ntfy](https://ntfy.sh
 zufällig erzeugt und steht im Dashboard unter „Benachrichtigungen aufs Handy“.
 In der ntfy-App diesen Kanal abonnieren, fertig.
 
+**Telegram** (zuverlässiger auf dem iPhone): In Telegram bei @BotFather mit `/newbot`
+einen eigenen Bot anlegen, den Token als `TELEGRAM_TOKEN=…` in `/etc/tradingbot.env`
+eintragen, dem Bot „hallo“ schreiben und als root `python -m tradingbot telegram`
+starten. Der Befehl trägt die Chat-ID ein und schickt eine Testnachricht. Danach
+`systemctl restart tradingbot`.
+
 `backtest` zeigt zusätzlich das **Kelly-Kriterium** (Kelly %): den rechnerisch besten
 Einsatz aus Trefferquote und Gewinn/Verlust-Verhältnis. Negativ heißt: kein Vorteil.
 Positiv: höchstens ein Viertel davon als `risk_per_trade_pct` nehmen.

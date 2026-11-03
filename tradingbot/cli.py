@@ -1,10 +1,11 @@
-"""Kommandozeile:  python -m tradingbot fetch | backtest | optimize | run | status | dashboard | verify | news"""
+"""Kommandozeile:  python -m tradingbot fetch | backtest | optimize | run | status | dashboard | verify | news | telegram"""
 
 from __future__ import annotations
 
 import argparse
 import logging
 import math
+import os
 import sys
 import time
 from datetime import datetime, timezone
@@ -213,6 +214,44 @@ def cmd_news(args) -> int:
     return 0 if ok else 1
 
 
+def cmd_telegram(args) -> int:
+    """Sucht die Chat-ID, trägt sie in /etc/tradingbot.env ein und schickt eine Testnachricht."""
+    from pathlib import Path
+
+    from tradingbot import notify
+
+    env_file = Path(notify.ENV_FILE)
+    env = dict(os.environ)
+    lines = env_file.read_text().splitlines() if env_file.exists() else []
+    for line in lines:
+        if "=" in line:
+            k, v = line.split("=", 1)
+            env.setdefault(k.strip(), v.strip())
+    token, chat_id = notify.telegram_config(env)
+    if not token:
+        print(f"Kein TELEGRAM_TOKEN gefunden. Erst den Token aus @BotFather in {env_file} eintragen.")
+        return 1
+    if not chat_id:
+        chats = notify.telegram_chats(token)
+        if not chats:
+            print("Noch keine Nachricht an den Bot gefunden. Schreib deinem Bot in Telegram „hallo“ und starte den Befehl nochmal.")
+            return 1
+        chat_id, name = chats[-1]
+        print(f"Chat gefunden: {name or chat_id}")
+        try:
+            with env_file.open("a") as f:
+                f.write(f"TELEGRAM_CHAT_ID={chat_id}\n")
+            print(f"Chat-ID in {env_file} eingetragen.")
+        except OSError:
+            print(f"Konnte {env_file} nicht schreiben. Bitte als root starten.")
+            return 1
+    if not notify.send_telegram(token, chat_id, "Test vom Trading-Bot\nAb jetzt kommt hier jeder Trade an."):
+        print("Testnachricht fehlgeschlagen. Stimmt der Token?")
+        return 1
+    print("Testnachricht gesendet. Jetzt den Bot neu starten: systemctl restart tradingbot")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="tradingbot")
     parser.add_argument("--config", default="config.yaml")
@@ -231,12 +270,14 @@ def main(argv: list[str] | None = None) -> int:
     db.add_argument("--port", type=int, default=8080)
     db.add_argument("--host", default="127.0.0.1", help="0.0.0.0 = auch aus dem Netzwerk erreichbar")
     sub.add_parser("verify", help="Trade-Protokoll gegen die Tagesnachweise prüfen")
+    sub.add_parser("telegram", help="Telegram-Benachrichtigungen einrichten und testen (als root auf dem Server)")
     nw = sub.add_parser("news", help="Nachrichtenquellen abrufen und prüfen, welche erreichbar sind")
     nw.add_argument("--save", action="store_true", help="Schlagzeilen auch fürs Dashboard speichern")
     args = parser.parse_args(argv)
 
     commands = {"fetch": cmd_fetch, "backtest": cmd_backtest, "optimize": cmd_optimize, "run": cmd_run, "status": cmd_status,
-                "dashboard": cmd_dashboard, "verify": cmd_verify, "news": cmd_news}
+                "dashboard": cmd_dashboard, "verify": cmd_verify, "news": cmd_news,
+                "telegram": cmd_telegram}
     try:
         return commands[args.command](args)
     except (FileNotFoundError, ValueError) as exc:

@@ -1,6 +1,6 @@
 import sqlite3
 
-from tradingbot import news
+from tradingbot import news, notify
 from tradingbot.dashboard import render
 from tradingbot.paper import PaperAccount
 
@@ -110,3 +110,42 @@ def test_live_step_notifies_on_open():
     acc = PaperAccount(":memory:", fee_pct=0.0)
     step(cfg, Market(), acc, notify_fn=lambda account, title, msg, tags: sent.append(title))
     assert sent == ["BTC: LONG (Kauf) eröffnet"]
+
+
+def test_send_goes_to_telegram_when_configured(monkeypatch):
+    from tradingbot.paper import PaperAccount
+
+    calls = []
+    monkeypatch.setattr(notify, "_post_json", lambda url, data, timeout: calls.append((url, data)) or {"ok": True})
+    acc = PaperAccount(":memory:")
+    monkeypatch.delenv("TELEGRAM_TOKEN", raising=False)
+    monkeypatch.delenv("TELEGRAM_CHAT_ID", raising=False)
+    assert notify.send(acc, "SOL: SHORT eröffnet", "Einstieg 187,40 $")
+    assert len(calls) == 1 and calls[0][0] == notify.SERVER
+    monkeypatch.setenv("TELEGRAM_TOKEN", "123:abc")
+    monkeypatch.setenv("TELEGRAM_CHAT_ID", "42")
+    calls.clear()
+    assert notify.send(acc, "SOL: SHORT eröffnet", "Einstieg 187,40 $")
+    tg = calls[1]
+    assert tg[0].endswith("/bot123:abc/sendMessage")
+    assert tg[1] == {"chat_id": "42", "text": "SOL: SHORT eröffnet\nEinstieg 187,40 $"}
+
+
+def test_send_reports_success_if_one_channel_works(monkeypatch):
+    from tradingbot.paper import PaperAccount
+
+    def fake(url, data, timeout):
+        if url == notify.SERVER:
+            raise OSError("ntfy nicht erreichbar")
+        return {"ok": True}
+
+    monkeypatch.setattr(notify, "_post_json", fake)
+    monkeypatch.setenv("TELEGRAM_TOKEN", "123:abc")
+    monkeypatch.setenv("TELEGRAM_CHAT_ID", "42")
+    assert notify.send(PaperAccount(":memory:"), "Titel", "Text")
+
+
+def test_telegram_chats_reads_updates(monkeypatch):
+    monkeypatch.setattr(notify, "_post_json", lambda url, data, timeout: {"ok": True, "result": [
+        {"update_id": 1, "message": {"chat": {"id": 987, "first_name": "Noel"}, "text": "hallo"}}]})
+    assert notify.telegram_chats("123:abc") == [("987", "Noel")]
