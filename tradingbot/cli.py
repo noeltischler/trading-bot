@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import urllib.error
 import logging
 import math
 import os
@@ -232,7 +233,13 @@ def cmd_telegram(args) -> int:
         print(f"Kein TELEGRAM_TOKEN gefunden. Erst den Token aus @BotFather in {env_file} eintragen.")
         return 1
     if not chat_id:
-        chats = notify.telegram_chats(token)
+        try:
+            chats = notify.telegram_chats(token)
+        except urllib.error.HTTPError as exc:
+            if exc.code in (401, 404):
+                print("Telegram kennt diesen Token nicht. Bitte den Token aus @BotFather neu eintragen.")
+                return 1
+            raise
         if not chats:
             print("Noch keine Nachricht an den Bot gefunden. Schreib deinem Bot in Telegram „hallo“ und starte den Befehl nochmal.")
             return 1

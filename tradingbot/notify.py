@@ -14,6 +14,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import secrets
 import urllib.request
 
@@ -48,7 +49,18 @@ def _post_json(url: str, data: dict, timeout: float) -> dict:
 def telegram_config(env: dict | None = None) -> tuple[str, str]:
     """(Token, Chat-ID) aus der Umgebung, leer wenn nicht eingerichtet."""
     env = os.environ if env is None else env
-    return env.get("TELEGRAM_TOKEN", "").strip(), env.get("TELEGRAM_CHAT_ID", "").strip()
+    return clean_token(env.get("TELEGRAM_TOKEN", "")), env.get("TELEGRAM_CHAT_ID", "").strip()
+
+
+def clean_token(raw: str) -> str:
+    """Entfernt beim Einfügen mitgerutschte Zeichen rund um den Token.
+
+    Ein Telegram-Token sieht so aus: 8-10 Ziffern, Doppelpunkt, 35 Zeichen.
+    Steht davor oder dahinter etwas anderes, wird nur der Token behalten.
+    """
+    raw = raw.strip()
+    m = re.search(r"(?<!\d)\d{8,10}:[A-Za-z0-9_-]{35}(?![A-Za-z0-9_-])", raw)
+    return m.group(0) if m else raw
 
 
 def send_telegram(token: str, chat_id: str, text: str, timeout: float = 10.0) -> bool:
