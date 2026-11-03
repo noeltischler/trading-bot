@@ -1,0 +1,42 @@
+# Gold-Bot: eigenes Übungskonto, läuft neben dem Krypto-Bot (Dienst tradingbot-gold).
+# Auf dem Server liegt die echte Datei als /opt/trading-bot/gold.yaml (wird nie überschrieben).
+#
+# Getestet am 03.11.2026 auf 6 Jahren Tageskerzen Gold (XAUT/USD, Bitfinex),
+# 160 Kombinationen, Training erste 2/3, Test letztes 1/3, Kosten 0,1 % pro Seite:
+#   Ausbruch 20 Tage, nur Long, Stop 1,5 %, Trail 4 %
+#   Training +7,2 %, Test +26,3 %, PF 6,7, 12 Trades im Test (≈ 6 pro Jahr)
+#   Zum Vergleich: Gold nur halten brachte im Test +49,9 % (starker Gold-Aufschwung).
+# Der Bot handelt selten und nur, wenn Gold ein neues 20-Tage-Hoch über seiner
+# EMA 100 macht. Kein Versprechen für die Zukunft.
+
+name: Gold-Bot
+exchange: kraken
+history_exchange: kraken      # Kraken liefert 720 Tageskerzen (≈ 2 Jahre)
+
+symbols:
+  GOLD: PAXG/USD              # 1 PAXG = 1 Feinunze Gold, läuft praktisch wie XAUUSD
+
+timeframe: 1d
+history_days: 720
+
+start_equity: 10000
+fee_pct: 0.1
+
+risk:
+  risk_per_trade_pct: 0.75
+  stop_pct: 1.5               # Gold schwankt ruhiger als Krypto: engerer Stop
+  trailing_stop_pct: 4.0
+  max_open_positions: 1
+  max_position_pct: 60        # bei 1,5 % Stop braucht 0,75 % Risiko eine Position von 50 % des Kontos
+  daily_loss_limit_pct: 3
+  drawdown_brake_pct: 10
+  event_pause_hours: 4
+
+strategy:
+  - kind: breakout            # Ausbruch über das Hoch der letzten 20 Tage
+    lookback: 20
+    trend: 100                # nur über der EMA 100 (Aufwärtstrend)
+    allow_short: false        # Gold nur kaufen, nicht shorten
+
+database: data/gold-market.db
+paper_database: data/gold-paper.db

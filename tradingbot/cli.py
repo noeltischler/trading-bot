@@ -9,6 +9,7 @@ import math
 import os
 import sys
 import time
+from pathlib import Path
 from datetime import datetime, timezone
 
 import pandas as pd
@@ -127,6 +128,12 @@ def cmd_optimize(args) -> int:
     return 0
 
 
+def log_file(config_path: str) -> str:
+    """bot.log für config.yaml, sonst eigenes Protokoll je Bot (z. B. bot-gold.log)."""
+    stem = Path(config_path).stem
+    return "bot.log" if stem == "config" else f"bot-{stem}.log"
+
+
 def cmd_run(args) -> int:
     from tradingbot.live import run_forever
     from tradingbot.paper import PaperAccount
@@ -135,7 +142,7 @@ def cmd_run(args) -> int:
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s %(message)s",
-        handlers=[logging.StreamHandler(), logging.FileHandler("bot.log", encoding="utf-8")],
+        handlers=[logging.StreamHandler(), logging.FileHandler(log_file(args.config), encoding="utf-8")],
     )
     account = PaperAccount(cfg.paper_database, cfg.start_equity, cfg.fee_pct)
     run_forever(cfg, _market(cfg.exchange), account, chart=CandleStore(cfg.paper_database))
@@ -167,7 +174,7 @@ def cmd_dashboard(args) -> int:
 
     cfg = load_config(args.config)
     serve(cfg.paper_database, cfg.start_equity, cfg.fee_pct, port=args.port, host=args.host,
-          coins=list(cfg.symbols), timeframe=cfg.timeframe)
+          coins=list(cfg.symbols), timeframe=cfg.timeframe, title=cfg.name)
     return 0
 
 
@@ -217,7 +224,7 @@ def cmd_news(args) -> int:
 
 def cmd_telegram(args) -> int:
     """Sucht die Chat-ID, trägt sie in /etc/tradingbot.env ein und schickt eine Testnachricht."""
-    from pathlib import Path
+
 
     from tradingbot import notify
 
