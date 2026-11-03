@@ -187,6 +187,22 @@ nach Abstürzen nach 30 Sekunden neu. Übungskonto und Kursdaten werden beim ers
 vom Mac übernommen. Zum Aktualisieren den neuen Code genauso hochladen und das Skript
 erneut ausführen; Übungskonto, `config.yaml` und Passwort bleiben erhalten.
 
+### Gold-Bot
+
+Neben dem Krypto-Bot läuft ein zweiter Bot nur für Gold (PAXG/USD bei Kraken, 1 PAXG =
+1 Feinunze, läuft praktisch wie XAUUSD). Gleicher Code, aber eigenes Übungskonto, eigene
+Einstellungen (`/opt/trading-bot/gold.yaml`, Vorlage `config.gold.yaml`) und eigene Dienste:
+`tradingbot-gold` und `tradingbot-gold-dashboard`. Das Dashboard liegt unter
+`https://gold.…sslip.io` (gleiches Passwort). Trades kommen über dieselben Kanäle
+(Telegram/ntfy) aufs Handy. Strategie: Tageskerzen, Ausbruch über das 20-Tage-Hoch im
+Aufwärtstrend, nur Long. Er handelt selten (im Test etwa sechsmal pro Jahr).
+
+```
+systemctl status tradingbot-gold          # läuft er?
+journalctl -u tradingbot-gold -f          # Live-Protokoll
+cd /opt/trading-bot && .venv/bin/python -m tradingbot --config gold.yaml status
+```
+
 ## Blockchain-Nachweis
 
 Der Bot bildet jeden Tag einen SHA-256-Fingerabdruck über alle bisherigen Trades,

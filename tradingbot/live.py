@@ -140,12 +140,12 @@ def step(cfg: Config, market, account: PaperAccount, chart: CandleStore | None =
 
 def run_forever(cfg: Config, market, account: PaperAccount, poll_seconds: int = 30,
                 chart: CandleStore | None = None) -> None:
-    log.info("Bot gestartet: %s, %s, Coins: %s, Kontostand %.2f",
-             market.id, cfg.timeframe, ", ".join(cfg.symbols), account.balance)
+    log.info("%s gestartet: %s, %s, Coins: %s, Kontostand %.2f",
+             cfg.name, market.id, cfg.timeframe, ", ".join(cfg.symbols), account.balance)
     last_news = 0.0
     if cfg.notify:
         log.info("Handy-Benachrichtigungen: ntfy-Kanal %s", notify.subscribe_url(account))
-        notify.send(account, "Trading-Bot gestartet",
+        notify.send(account, f"{cfg.name} gestartet",
                     f"{cfg.timeframe}, {len(cfg.symbols)} Coins, Kontostand {account.balance:.2f} $ (Übungskonto)", ["robot"], 2)
     if upcoming_gap(time.time()):
         log.warning("Die Liste der Wirtschaftstermine (tradingbot/events.py) endet bald und muss ergänzt werden.")

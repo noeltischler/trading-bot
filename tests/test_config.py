@@ -37,3 +37,29 @@ def test_strategy_list_loads_as_combination(tmp_path):
     assert [s.kind for s in cfg.strategy] == ["wedge", "sweep"]
     bp = cfg.backtest_params()
     assert (bp.stop_atr, bp.trail_atr, bp.daily_loss_limit_pct) == (2, 3, 3)
+
+
+def test_gold_config_loads():
+    from tradingbot.strategy import LONG, signals
+
+    cfg = load_config("config.gold.yaml")
+    assert cfg.name == "Gold-Bot" and cfg.timeframe == "1d"
+    assert cfg.symbols == {"GOLD": "PAXG/USD"}
+    (p,) = cfg.strategy
+    assert p.kind == "breakout" and p.lookback == 20 and p.trend == 100 and not p.allow_short
+    # nur Long: auch ein starker Abwärtsausbruch gibt kein Short-Signal
+    import numpy as np
+    import pandas as pd
+    close = np.concatenate([np.linspace(100, 200, 280), np.full(19, 195.0), [205.0], np.linspace(190, 120, 40)])
+    df = pd.DataFrame({"time": np.arange(len(close)) * 86400, "open": close, "high": close + 0.1,
+                       "low": close - 0.1, "close": close, "volume": 1.0})
+    sig = signals(df, p)
+    assert (sig == LONG).any() and (sig >= 0).all()
+
+
+def test_default_name_and_log_file():
+    from tradingbot.cli import log_file
+
+    assert load_config("config.example.yaml").name == "Trading-Bot"
+    assert log_file("config.yaml") == "bot.log"
+    assert log_file("gold.yaml") == "bot-gold.log"

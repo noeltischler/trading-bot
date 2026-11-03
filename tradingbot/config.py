@@ -31,6 +31,7 @@ class RiskConfig:
 @dataclass
 class Config:
     symbols: dict[str, str]
+    name: str = "Trading-Bot"  # Name in Dashboard, Protokoll und Handy-Nachrichten (z. B. "Gold-Bot")
     exchange: str = "kraken"
     history_exchange: str = "coinbaseexchange"
     timeframe: str = "15m"
@@ -90,6 +91,7 @@ def load_config(path: str | Path = "config.yaml") -> Config:
 
     return Config(
         symbols={str(k): str(v) for k, v in symbols.items()},
+        name=str(raw.get("name") or "Trading-Bot"),
         exchange=str(raw.get("exchange", "kraken")),
         history_exchange=str(raw.get("history_exchange") or raw.get("exchange", "kraken")),
         timeframe=timeframe,

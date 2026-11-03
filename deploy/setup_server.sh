@@ -21,12 +21,14 @@ echo "==> Benutzer und Code"
 id -u bot >/dev/null 2>&1 || useradd --system --create-home --home-dir /home/bot --shell /usr/sbin/nologin bot
 mkdir -p "$APP"
 if [ "$SRC" != "$APP" ]; then
-  rsync -a --delete --exclude .venv --exclude data --exclude config.yaml --exclude bot.log "$SRC/" "$APP/"
+  rsync -a --delete --exclude .venv --exclude data --exclude config.yaml --exclude gold.yaml --exclude "bot*.log" "$SRC/" "$APP/"
   # Übungskonto und Kursdaten nur beim ersten Mal übernehmen, nie überschreiben
   if [ -d "$SRC/data" ] && [ ! -d "$APP/data" ]; then cp -a "$SRC/data" "$APP/data"; fi
   if [ -f "$SRC/config.yaml" ] && [ ! -f "$APP/config.yaml" ]; then cp "$SRC/config.yaml" "$APP/config.yaml"; fi
 fi
 [ -f "$APP/config.yaml" ] || cp "$APP/config.example.yaml" "$APP/config.yaml"
+# Gold-Bot: eigene Einstellungen, nur beim ersten Mal aus der Vorlage
+[ -f "$APP/gold.yaml" ] || cp "$APP/config.gold.yaml" "$APP/gold.yaml"
 mkdir -p "$APP/data"
 chown -R bot:bot "$APP"
 
@@ -46,9 +48,11 @@ chmod 640 "$ENV_FILE"
 echo "==> Dienste"
 cp "$APP/deploy/tradingbot.service" /etc/systemd/system/
 cp "$APP/deploy/tradingbot-dashboard.service" /etc/systemd/system/
+cp "$APP/deploy/tradingbot-gold.service" /etc/systemd/system/
+cp "$APP/deploy/tradingbot-gold-dashboard.service" /etc/systemd/system/
 systemctl daemon-reload
-systemctl enable --now tradingbot tradingbot-dashboard
-systemctl restart tradingbot tradingbot-dashboard
+systemctl enable --now tradingbot tradingbot-dashboard tradingbot-gold tradingbot-gold-dashboard
+systemctl restart tradingbot tradingbot-dashboard tradingbot-gold tradingbot-gold-dashboard
 
 echo "==> HTTPS über sslip.io"
 IP="$(curl -4 -s https://ifconfig.me || hostname -I | awk '{print $1}')"
@@ -56,6 +60,9 @@ HOST="$(echo "$IP" | tr . -).sslip.io"
 cat > /etc/caddy/Caddyfile <<CADDY
 $HOST {
     reverse_proxy 127.0.0.1:8080
+}
+gold.$HOST {
+    reverse_proxy 127.0.0.1:8081
 }
 CADDY
 systemctl reload caddy || systemctl restart caddy
@@ -71,8 +78,10 @@ ufw --force enable >/dev/null
 echo
 echo "Fertig! Der Bot läuft rund um die Uhr."
 echo "Dashboard:  https://$HOST"
+echo "Gold-Bot:   https://gold.$HOST"
 echo "Benutzer:   beliebig (z. B. noel)"
 echo "Passwort:   $DASHBOARD_PASSWORD"
 echo
 echo "Nützlich:   journalctl -u tradingbot -f     (Live-Protokoll, Strg+C beendet)"
 echo "            systemctl restart tradingbot    (nach Änderungen an config.yaml)"
+echo "            journalctl -u tradingbot-gold -f   (Protokoll des Gold-Bots)"
