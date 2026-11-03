@@ -146,6 +146,7 @@ def test_combined_strategies_first_one_wins():
 
 @pytest.mark.parametrize("extra", [
     {"kind": "squeeze", "lookback": 60, "use_trend": False},
+    {"kind": "holygrail", "use_trend": False},
     {"kind": "sweep", "lookback": 20, "volume_ratio": 1.2, "use_trend": False},
     {"kind": "sweep", "lookback": 20, "use_trend": False, "ema_filter": 20, "adx_min": 15, "macd_confirm": True, "rsi_confirm": True},
 ])

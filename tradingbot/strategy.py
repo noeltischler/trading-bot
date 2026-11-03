@@ -28,6 +28,10 @@
 - "sweep":    Liquiditäts-Sweep („Turtle Soup“). Long, wenn eine Kerze unter das
               Tief der letzten lookback Kerzen sticht, aber wieder darüber schließt
               (Stopps abgeholt, Ausbruch gescheitert). Mit Trend-EMA-Filter, wenn use_trend.
+- "holygrail": „Holy Grail“ nach Linda Raschke. Bei starkem Trend (ADX über 30, oder
+              adx_min) und steigender EMA fast (20): Long, wenn die letzte Kerze die EMA
+              berührt hat und der Kurs über ihr Hoch steigt. Im Backtest 2026 bei Krypto
+              auf 4h ohne Vorteil, nur zum Vergleich enthalten.
 
 Mehrere Strategien lassen sich kombinieren (Liste statt einzelner Parameter): Es zählt
 das Signal der ersten Strategie, die auf dieser Kerze eines hat.
@@ -47,7 +51,7 @@ import pandas as pd
 from tradingbot.indicators import adx, atr, ema, macd_hist, rsi, supertrend
 
 LONG, FLAT, SHORT = 1, 0, -1
-KINDS = ("ema", "breakout", "meanrev", "wedge", "fvg", "supertrend", "fib", "sweep", "squeeze")
+KINDS = ("ema", "breakout", "meanrev", "wedge", "fvg", "supertrend", "fib", "sweep", "squeeze", "holygrail")
 
 
 @dataclass
@@ -106,6 +110,8 @@ class StrategyParams:
             return f"Sweep {self.lookback}"
         if self.kind == "squeeze":
             return f"Squeeze {self.lookback}"
+        if self.kind == "holygrail":
+            return f"Holy Grail {self.fast}"
         period = "" if self.rsi_period == 14 else f"-{self.rsi_period}"
         return f"RSI{period} {self.rsi_low:g}/{self.rsi_high:g}"
 
@@ -318,6 +324,18 @@ def signals(df: pd.DataFrame, p: "StrategyParams | tuple | list | None" = None) 
         squeezed = (width <= width.rolling(p.lookback).min()).astype(float).rolling(10).max() > 0
         long_ = squeezed & _rising(close > upper)
         short = squeezed & _rising(close < lower)
+        if p.use_trend:
+            long_, short = long_ & up, short & down
+    elif p.kind == "holygrail":
+        # Linda Raschke: starker Trend (ADX über 30), Rücksetzer an die EMA fast (20),
+        # Einstieg, sobald der Kurs über das Hoch (unter das Tief) der Rücksetzer-Kerze steigt (fällt)
+        e = ema(close, p.fast)
+        strong = (adx(df) > (p.adx_min or 30)).shift(fill_value=False)
+        rising_e, falling_e = e.shift() > e.shift(4), e.shift() < e.shift(4)
+        touched_up = df["low"].shift() <= e.shift()
+        touched_down = df["high"].shift() >= e.shift()
+        long_ = _rising(strong & rising_e & touched_up & (close > df["high"].shift()))
+        short = _rising(strong & falling_e & touched_down & (close < df["low"].shift()))
         if p.use_trend:
             long_, short = long_ & up, short & down
     else:  # meanrev

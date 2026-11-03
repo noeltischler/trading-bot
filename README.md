@@ -79,7 +79,9 @@ Bot tut, steht im Terminal und in `bot.log`. Übungskonto und Trades liegen in
   `volume_ratio` (Volumen über dem Durchschnitt) und `btc_filter`: Long nur, wenn
   Bitcoin über seiner EMA dieser Länge liegt, Short nur darunter. Altcoins folgen
   meist Bitcoin, deshalb hilft das gegen Trades gegen den Gesamtmarkt.
-- `fvg`, `fib`, `sweep` und `squeeze` handeln mit `use_trend: true` nur mit dem Trend (Trend-EMA).
+- `holygrail` (Linda Raschke): Bei starkem Trend (ADX über 30) Einstieg nach dem Rücksetzer
+  an die EMA 20. Im Backtest bei Krypto auf 4h ohne Vorteil, nur zum Vergleich.
+- `fvg`, `fib`, `sweep`, `squeeze` und `holygrail` handeln mit `use_trend: true` nur mit dem Trend (Trend-EMA).
 - Mehrere Strategien zusammen: unter `strategy:` statt eines Blocks eine Liste von
   Blöcken eintragen (siehe `config.empfohlen.yaml`). Es zählt das Signal der ersten
   Strategie, die eines hat.
