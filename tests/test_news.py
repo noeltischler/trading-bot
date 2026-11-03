@@ -79,6 +79,9 @@ def test_notify_topic_texts_and_dashboard_card():
     assert t.startswith("tradingbot-") and len(t) > 30 and notify.topic(acc) == t
     title, msg, tags = notify.opened_text("SOL", False, 187.4, 193.02, 74.9)
     assert title == "SOL: SHORT (Leerverkauf) eröffnet" and "187,40" in msg and "193,02" in msg
+    assert "Strategie" not in msg
+    _, msg, _ = notify.opened_text("SOL", False, 187.4, 193.02, 74.9, "RSI-2 10/90")
+    assert msg.endswith("Strategie: RSI-2 10/90")
     title, msg, _ = notify.closed_text("BTC", True, 101_234.5, -12.5, "stop", 9_800)
     assert title == "BTC: Long geschlossen, -12,50 $" and "101.234,50" in msg and "Stop" in msg
     assert t in render(acc, now=1_792_840_000)

@@ -50,11 +50,12 @@ def _price(p: float) -> str:
     return f"{p:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".") if p >= 1 else f"{p:.5f}".replace(".", ",")
 
 
-def opened_text(coin: str, long: bool, price: float, stop: float, risk_usd: float) -> tuple[str, str, list[str]]:
+def opened_text(coin: str, long: bool, price: float, stop: float, risk_usd: float,
+                strategy: str = "") -> tuple[str, str, list[str]]:
     side = "LONG (Kauf)" if long else "SHORT (Leerverkauf)"
     title = f"{coin}: {side} eröffnet"
     msg = (f"Einstieg {_price(price)} $\nStop {_price(stop)} $\n"
-           f"Risiko etwa {risk_usd:.2f} $ (Übungskonto)")
+           f"Risiko etwa {risk_usd:.2f} $ (Übungskonto)" + (f"\nStrategie: {strategy}" if strategy else ""))
     return title, msg, ["chart_with_upwards_trend" if long else "chart_with_downwards_trend"]
 
 

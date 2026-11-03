@@ -265,6 +265,16 @@ def label(p: "StrategyParams | tuple | list") -> str:
     return " + ".join(x.label() for x in p) if isinstance(p, (list, tuple)) else p.label()
 
 
+def last_signal(df: pd.DataFrame, p: "StrategyParams | tuple | list") -> tuple[int, str]:
+    """Signal der letzten Kerze und der Name der Strategie, die es ausgelöst hat
+    (bei mehreren die erste in der Liste, wie in signals)."""
+    for one in (p if isinstance(p, (list, tuple)) else [p]):
+        sig = int(signals(df, one).iloc[-1])
+        if sig != FLAT:
+            return sig, one.label()
+    return FLAT, ""
+
+
 def signals(df: pd.DataFrame, p: "StrategyParams | tuple | list | None" = None) -> pd.Series:
     if isinstance(p, (list, tuple)):
         out = pd.Series(FLAT, index=df.index)

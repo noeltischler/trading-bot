@@ -22,7 +22,7 @@ from tradingbot.paper import PaperAccount
 from tradingbot.position import Position
 from tradingbot.storage import CandleStore
 from tradingbot.sentiment import LABELS_DE, fetch_fear_greed, with_fear_greed
-from tradingbot.strategy import FLAT, LONG, signals, uses_btc, uses_fear_greed, with_btc
+from tradingbot.strategy import FLAT, LONG, last_signal, uses_btc, uses_fear_greed, with_btc
 
 log = logging.getLogger("tradingbot")
 
@@ -107,7 +107,7 @@ def step(cfg: Config, market, account: PaperAccount, chart: CandleStore | None =
                 log.info("%s Stop nachgezogen auf %.2f", coin, pos.stop)
 
         # 2) Signal der gerade geschlossenen Kerze umsetzen
-        sig = int(signals(df, cfg.strategy).iloc[-1])
+        sig, source = last_signal(df, cfg.strategy)
         if sig != FLAT:
             price = market.last_price(symbol)
             if pos and pos.side != sig:
@@ -128,12 +128,12 @@ def step(cfg: Config, market, account: PaperAccount, chart: CandleStore | None =
             elif pos is None and len(account.positions()) < cfg.risk.max_open_positions:
                 stop_pct, trail_pct = atr_pcts(bp, float(atr(df).iloc[-1]), price)
                 new = Position.open(coin, sig, price, account.balance, risk, stop_pct, int(time.time()),
-                                    bp.take_profit_r, trail_pct, bp.max_position_pct)
+                                    bp.take_profit_r, trail_pct, bp.max_position_pct, source)
                 if new:
                     account.open(new)
-                    log.info("%s %s eröffnet bei %.2f, Menge %.6f, Stop %.2f",
-                             coin, SIDE_NAME[sig], price, new.qty, new.stop)
-                    tell(notify.opened_text(coin, sig == LONG, price, new.stop, abs(price - new.stop) * new.qty))
+                    log.info("%s %s eröffnet bei %.2f, Menge %.6f, Stop %.2f (%s)",
+                             coin, SIDE_NAME[sig], price, new.qty, new.stop, source)
+                    tell(notify.opened_text(coin, sig == LONG, price, new.stop, abs(price - new.stop) * new.qty, source))
 
         account.set_state(key, str(int(last.time)))
 
