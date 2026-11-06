@@ -203,3 +203,14 @@ def test_one_dashboard_for_two_bots(tmp_path):
     assert 'href="/gold' not in page.replace('href="/gold" class=""', "")
     csv, ctype = page_for(bots, bots[1], "/trades.csv", {})
     assert ctype.startswith("text/csv")
+
+
+def test_trade_and_bar_tips():
+    from tradingbot.dashboard import bucket_tips, trade_tip
+
+    t = {"coin": "BTC", "side": 1, "entry": 100.0, "exit": 110.0, "opened_at": 0, "closed_at": 7200,
+         "pnl": 50.0, "balance": 10050.0, "strategy": "Keil 80"}
+    tip = trade_tip(t)
+    assert "BTC · Long" in tip and "+10,00 %" in tip and "+0,50 %" in tip and "+50,00 $" in tip and "Keil 80" in tip
+    tips = bucket_tips([t], 0, 86400 * 2, "day")
+    assert len(tips) == 3 and "Trades" in tips[0] and "+50,00 $" in tips[0] and "BTC Long" in tips[0]
