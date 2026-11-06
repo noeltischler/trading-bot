@@ -187,6 +187,18 @@ code.mono { background:rgba(79,70,229,.07); padding:2px 6px; border-radius:6px; 
 .theme:active { transform:scale(.92) } .theme svg { width:19px; height:19px; fill:none; stroke:currentColor; stroke-width:2; stroke-linecap:round; stroke-linejoin:round }
 .theme .moon { display:none } :root[data-theme="dark"] .theme .moon { display:block } :root[data-theme="dark"] .theme .sun { display:none }
 body, .card, nav.tabs, .periods a, .pills a { transition:background-color .3s, color .3s, transform .25s ease, box-shadow .25s ease }
+.hit { fill:transparent; cursor:pointer } .hit-g { cursor:pointer } .hit-g:hover line { stroke-width:2.5 }
+svg.bars .hit:hover { fill:var(--hover) }
+.tip { position:fixed; z-index:50; min-width:220px; max-width:min(320px, calc(100vw - 24px)); padding:12px 14px; border-radius:14px;
+  background:rgba(255,255,255,.97); -webkit-backdrop-filter:blur(18px) saturate(160%); backdrop-filter:blur(18px) saturate(160%);
+  outline:1px solid var(--line); outline-offset:-1px; box-shadow:0 18px 40px -12px rgba(15,23,42,.35); font-size:13px;
+  animation:pop .16s ease-out; pointer-events:auto }
+:root[data-theme="dark"] .tip { background:rgba(15,21,36,.97) }
+@keyframes pop { from { opacity:0; transform:translateY(4px) scale(.97) } to { opacity:1; transform:none } }
+.tip .th { font-weight:700; margin-bottom:6px; font-size:13.5px }
+.tip .tr, .tip .tl { display:flex; justify-content:space-between; gap:14px; padding:2px 0 }
+.tip .tr span { color:var(--muted) } .tip .tl { font-size:12.5px; border-top:1px solid var(--line); margin-top:4px; padding-top:5px }
+.tip .tl + .tl { margin-top:0; border-top:0; padding-top:2px }
 @media (prefers-reduced-motion:reduce) { *, *::before { animation:none !important; transition:none !important } }
 """
 
@@ -205,6 +217,21 @@ document.addEventListener('pointerdown', function (e) {
   s.style.left = (e.clientX - r.left - d / 2) + 'px'; s.style.top = (e.clientY - r.top - d / 2) + 'px';
   a.appendChild(s); setTimeout(function () { s.remove(); }, 600);
 });
+var tipEl = null;
+function closeTip() { if (tipEl) { tipEl.remove(); tipEl = null; } }
+document.addEventListener('click', function (e) {
+  var h = e.target.closest('[data-tip]');
+  if (tipEl && tipEl.contains(e.target)) return;
+  closeTip();
+  if (!h) return;
+  tipEl = document.createElement('div'); tipEl.className = 'tip'; tipEl.innerHTML = h.getAttribute('data-tip');
+  document.body.appendChild(tipEl);
+  var w = tipEl.offsetWidth, ht = tipEl.offsetHeight, x = e.clientX - w / 2, y = e.clientY - ht - 14;
+  if (y < 8) y = e.clientY + 18;
+  x = Math.max(8, Math.min(x, window.innerWidth - w - 8)); y = Math.min(y, window.innerHeight - ht - 8);
+  tipEl.style.left = x + 'px'; tipEl.style.top = y + 'px';
+});
+window.addEventListener('scroll', closeTip, { passive: true });
 function toggleTheme() {
   var d = document.documentElement, t = d.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
   d.setAttribute('data-theme', t);
@@ -307,7 +334,65 @@ def pnl_buckets(trades: list[dict], since: int, now: int, unit: str) -> list[tup
     return [(_bucket_label(k, unit), v[0], v[1]) for k, v in sorted(buckets.items())]
 
 
-def bars_svg(buckets: list[tuple[str, float, int]], width: int = 520, height: int = 220) -> str:
+def _acct_pct(t: dict) -> float:
+    """Ergebnis eines Trades in % vom Kontostand davor."""
+    before = t["balance"] - t["pnl"]
+    return 100 * t["pnl"] / before if before else 0.0
+
+
+def _pct(v: float) -> str:
+    return f"{v:+.2f} %".replace(".", ",")
+
+
+def _tip_row(label: str, value: str, cls: str = "") -> str:
+    return f'<div class="tr"><span>{label}</span><b class="{cls}">{value}</b></div>'
+
+
+def trade_tip(t: dict, coin: str | None = None) -> str:
+    """Inhalt des Info-Felds für einen Trade (HTML, wird in data-tip escaped)."""
+    side = "Long" if t["side"] == LONG else "Short"
+    cls = "up" if t["pnl"] > 0 else "down" if t["pnl"] < 0 else ""
+    head = f"{html.escape(coin or t.get('coin', ''))} · {side}"
+    return (f'<div class="th">{head}</div>'
+            + _tip_row("Zeitraum", f"{_fmt_time(t['opened_at'])} → {_fmt_time(t['closed_at'])} UTC")
+            + _tip_row("Dauer", _duration(t["closed_at"] - t["opened_at"]))
+            + _tip_row("Kurs", f"{_money(t['entry'])} → {_money(t['exit'])} ({_pct(_move_pct(t))})")
+            + _tip_row("Ergebnis", f"{_signed(t['pnl'])} $", cls)
+            + _tip_row("vom Konto", _pct(_acct_pct(t)), cls)
+            + (_tip_row("Strategie", html.escape(t["strategy"])) if t.get("strategy") else ""))
+
+
+def bucket_tips(trades: list[dict], since: int, now: int, unit: str) -> list[str]:
+    """Info-Feld je Balken (gleiche Reihenfolge wie pnl_buckets)."""
+    starts = []
+    d = _bucket_start(since, unit)
+    while d.timestamp() <= now:
+        starts.append(d)
+        d = _next_bucket(d, unit)
+    keys = sorted(set(starts) | {_bucket_start(t["closed_at"], unit) for t in trades if since <= t["closed_at"] <= now})
+    tips = []
+    for k in keys:
+        end = _next_bucket(k, unit)
+        inside = [t for t in trades if since <= t["closed_at"] <= now and k.timestamp() <= t["closed_at"] < end.timestamp()]
+        pnl = sum(t["pnl"] for t in inside)
+        cls = "up" if pnl > 0 else "down" if pnl < 0 else ""
+        start_bal = inside[0]["balance"] - inside[0]["pnl"] if inside else 0
+        rows = [f'<div class="th">{_fmt_time(int(k.timestamp()))} → {_fmt_time(int(end.timestamp()))} UTC</div>',
+                _tip_row("Ergebnis", f"{_signed(pnl)} $", cls),
+                _tip_row("vom Konto", _pct(100 * pnl / start_bal) if start_bal else "–", cls),
+                _tip_row("Trades", str(len(inside)))]
+        for t in inside[:6]:
+            c = "up" if t["pnl"] > 0 else "down" if t["pnl"] < 0 else ""
+            rows.append(f'<div class="tl"><span>{html.escape(t.get("coin", ""))} {"Long" if t["side"] == LONG else "Short"}'
+                        f' {_pct(_move_pct(t))}</span><b class="{c}">{_signed(t["pnl"])} $</b></div>')
+        if len(inside) > 6:
+            rows.append(f'<div class="tl muted">… und {len(inside) - 6} weitere</div>')
+        tips.append("".join(rows))
+    return tips
+
+
+def bars_svg(buckets: list[tuple[str, float, int]], width: int = 520, height: int = 220,
+             tips: list[str] | None = None) -> str:
     """Balkendiagramm: grün = Gewinn, rot = Verlust je Abschnitt."""
     if not buckets:
         return ""
@@ -338,8 +423,10 @@ def bars_svg(buckets: list[tuple[str, float, int]], width: int = 520, height: in
         y = sy(max(v, 0.0))
         h = max(abs(sy(v) - zero), 1.0 if count else 0.0)
         if h:
-            out.append(f'<rect x="{x:.1f}" y="{y:.1f}" width="{bw:.1f}" height="{h:.1f}" class="{"b-up" if v >= 0 else "b-down"}">'
-                       f'<title>{label}: {_signed(v)} $, {count} Trades</title></rect>')
+            out.append(f'<rect x="{x:.1f}" y="{y:.1f}" width="{bw:.1f}" height="{h:.1f}" class="{"b-up" if v >= 0 else "b-down"}"/>')
+        if tips and i < len(tips) and count:  # unsichtbare Tippfläche über die ganze Höhe
+            out.append(f'<rect x="{left + i * slot:.1f}" y="{top}" width="{slot:.1f}" height="{ph}" class="hit" '
+                       f'data-tip="{html.escape(tips[i], quote=True)}"/>')
     for i, anchor in ((0, "start"), (n // 2, "middle"), (n - 1, "end")):
         x = {"start": left, "middle": left + i * slot + slot / 2, "end": left + pw}[anchor]
         out.append(f'<text x="{x:.1f}" y="{height - 6}" text-anchor="{anchor}">{buckets[i][0]}</text>')
@@ -480,7 +567,8 @@ def render(account: PaperAccount, title: str = "Trading-Bot", period: str | None
 </section>
 <div class="periods">{tiles}</div>
 <section class="card"><h2>Kontoverlauf · {label}</h2>{equity_svg(points)}</section>
-<section class="card"><h2>Zeitraum {label} · Ergebnis je {unit_name}</h2>{bars_svg(pnl_buckets(trades, since, now, unit))}
+<section class="card"><h2>Zeitraum {label} · Ergebnis je {unit_name}</h2>{bars_svg(pnl_buckets(trades, since, now, unit), tips=bucket_tips(trades, since, now, unit))}
+<p class="legend">Tipp auf einen Balken für Details.</p>
 {_stats_html(_stats(in_period))}
 <p style="margin:10px 0 0"><a href="/trades?p={period}">Diese Trades ansehen →</a></p></section>
 <section class="card"><h2>Offene Positionen</h2><table><tr><th>Coin</th><th>Seite</th><th>Einstieg</th><th>Stop</th><th>Seit</th><th>Strategie</th></tr>{pos_rows}</table></section>
@@ -554,15 +642,19 @@ def candle_svg(df: pd.DataFrame, tf_seconds: int, trades: list[dict], position=N
         x, y = sx(t), sy(v)
         pts = (f"{x:.1f},{y - 2:.1f} {x - 7:.1f},{y + 11:.1f} {x + 7:.1f},{y + 11:.1f}" if side == LONG
                else f"{x:.1f},{y + 2:.1f} {x - 7:.1f},{y - 11:.1f} {x + 7:.1f},{y - 11:.1f}")
-        return f'<polygon points="{pts}" class="{"m-long" if side == LONG else "m-short"}"><title>{label}</title></polygon>'
+        title = f"<title>{label}</title>" if label else ""
+        return f'<polygon points="{pts}" class="{"m-long" if side == LONG else "m-short"}">{title}</polygon>'
 
     for t in trades:
-        side = "Long" if t["side"] == LONG else "Short"
         cls = "trade-up" if t["pnl"] > 0 else "trade-down"
-        out.append(f'<line x1="{sx(t["opened_at"]):.1f}" y1="{sy(t["entry"]):.1f}" x2="{sx(t["closed_at"]):.1f}" y2="{sy(t["exit"]):.1f}" class="{cls}"/>')
-        out.append(entry_mark(t["opened_at"], t["entry"], t["side"], f"{side} Einstieg {_money(t['entry'])}"))
-        out.append(f'<circle cx="{sx(t["closed_at"]):.1f}" cy="{sy(t["exit"]):.1f}" r="5" class="m-exit">'
-                   f'<title>Ausstieg {_money(t["exit"])}, Ergebnis {t["pnl"]:+.2f} $</title></circle>')
+        tip = html.escape(trade_tip(t), quote=True)
+        x0, y0, x1, y1 = sx(t["opened_at"]), sy(t["entry"]), sx(t["closed_at"]), sy(t["exit"])
+        out.append(f'<g class="hit-g" data-tip="{tip}">'
+                   f'<line x1="{x0:.1f}" y1="{y0:.1f}" x2="{x1:.1f}" y2="{y1:.1f}" class="{cls}"/>'
+                   + entry_mark(t["opened_at"], t["entry"], t["side"], "")
+                   + f'<circle cx="{x1:.1f}" cy="{y1:.1f}" r="5" class="m-exit"/>'
+                   f'<path d="M{min(x0, x1) - 8:.1f},{min(y0, y1) - 12:.1f} h{abs(x1 - x0) + 16:.1f} '
+                   f'v{abs(y1 - y0) + 24:.1f} h-{abs(x1 - x0) + 16:.1f} Z" class="hit"/></g>')
 
     if position is not None:
         y = sy(position.stop)
