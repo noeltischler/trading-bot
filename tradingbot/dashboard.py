@@ -79,17 +79,24 @@ REASONS = {"stop": "Stop", "signal": "Gegensignal", "target": "Gewinnziel"}
 _CSS = """
 :root { --bg:#f4f6fb; --card:rgba(255,255,255,.74); --solid:#fff; --text:#0f172a; --muted:#64748b; --line:rgba(15,23,42,.08);
   --up:#059669; --down:#e11d48; --accent:#4f46e5; --accent2:#06b6d4; --glow:rgba(79,70,229,.18);
-  --shadow:0 1px 2px rgba(15,23,42,.04), 0 10px 30px -12px rgba(15,23,42,.12); color-scheme:light; }
+  --shadow:0 1px 2px rgba(15,23,42,.04), 0 10px 30px -12px rgba(15,23,42,.12); color-scheme:light;
+  --edge:rgba(255,255,255,.9); --glass:rgba(255,255,255,.6); --dots:rgba(15,23,42,.07); --hover:rgba(15,23,42,.04); --base:rgba(15,23,42,.18);
+  --blob1:rgba(99,102,241,.16); --blob2:rgba(6,182,212,.14); --blob3:rgba(168,85,247,.10); }
+:root[data-theme="dark"] { --bg:#070b14; --card:rgba(17,24,39,.62); --solid:#0b1220; --text:#e5e9f2; --muted:#8b97ad; --line:rgba(148,163,184,.14);
+  --up:#34d399; --down:#fb7185; --accent:#818cf8; --accent2:#22d3ee; --glow:rgba(129,140,248,.35);
+  --shadow:0 1px 2px rgba(0,0,0,.4), 0 12px 32px -12px rgba(0,0,0,.6); color-scheme:dark;
+  --edge:rgba(148,163,184,.10); --glass:rgba(17,24,39,.55); --dots:rgba(148,163,184,.10); --hover:rgba(148,163,184,.08); --base:rgba(148,163,184,.3);
+  --blob1:rgba(99,102,241,.22); --blob2:rgba(6,182,212,.16); --blob3:rgba(168,85,247,.14); }
 * { box-sizing:border-box; -webkit-tap-highlight-color:transparent }
 html { background:var(--bg) }
 body { margin:0; min-height:100vh; color:var(--text); background:var(--bg);
   font:15px/1.5 "Inter",-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif; font-feature-settings:"tnum" 1, "cv11" 1; }
 body::before { content:""; position:fixed; inset:0; z-index:-2; pointer-events:none;
-  background:radial-gradient(900px 520px at 8% -8%, rgba(99,102,241,.16), transparent 60%),
-             radial-gradient(760px 480px at 100% 0%, rgba(6,182,212,.14), transparent 60%),
-             radial-gradient(700px 600px at 50% 110%, rgba(168,85,247,.10), transparent 60%); }
+  background:radial-gradient(900px 520px at 8% -8%, var(--blob1), transparent 60%),
+             radial-gradient(760px 480px at 100% 0%, var(--blob2), transparent 60%),
+             radial-gradient(700px 600px at 50% 110%, var(--blob3), transparent 60%); }
 body::after { content:""; position:fixed; inset:0; z-index:-1; pointer-events:none; opacity:.55;
-  background-image:radial-gradient(rgba(15,23,42,.07) 1px, transparent 1px); background-size:22px 22px;
+  background-image:radial-gradient(var(--dots) 1px, transparent 1px); background-size:22px 22px;
   -webkit-mask-image:linear-gradient(180deg,#000,transparent 70%); mask-image:linear-gradient(180deg,#000,transparent 70%); }
 main { max-width:820px; margin:0 auto; padding:18px 16px 8px }
 header.top { display:flex; align-items:center; gap:12px; margin:4px 0 14px }
@@ -106,7 +113,7 @@ h2 { font-size:11.5px; margin:0 0 12px; color:var(--muted); font-weight:650; tex
 h2::before { content:""; width:6px; height:6px; border-radius:2px; background:linear-gradient(135deg,var(--accent),var(--accent2)) }
 h2 a { text-transform:none; letter-spacing:0; font-weight:600 }
 .card { position:relative; background:var(--card); -webkit-backdrop-filter:blur(16px) saturate(160%); backdrop-filter:blur(16px) saturate(160%);
-  border:1px solid rgba(255,255,255,.9); outline:1px solid var(--line); outline-offset:-1px; border-radius:18px; padding:16px;
+  border:1px solid var(--edge); outline:1px solid var(--line); outline-offset:-1px; border-radius:18px; padding:16px;
   margin-bottom:14px; overflow-x:auto; box-shadow:var(--shadow); transition:transform .25s ease, box-shadow .25s ease;
   animation:rise .5s cubic-bezier(.2,.7,.2,1) both }
 @media (hover:hover) { .card:hover { transform:translateY(-2px); box-shadow:0 1px 2px rgba(15,23,42,.04), 0 18px 40px -16px rgba(79,70,229,.25) } }
@@ -124,10 +131,10 @@ table { width:100%; border-collapse:collapse; font-size:13.5px }
 td,th { padding:9px 6px; border-bottom:1px solid var(--line); text-align:left; white-space:nowrap }
 th { color:var(--muted); font-weight:600; font-size:11.5px; text-transform:uppercase; letter-spacing:.05em }
 tr:last-child td { border-bottom:0 }
-tbody tr, table tr { transition:background .15s } table tr:hover td { background:rgba(79,70,229,.04) }
+tbody tr, table tr { transition:background .15s } table tr:hover td { background:var(--hover) }
 .up { color:var(--up) } .down { color:var(--down) } .muted { color:var(--muted) } .mono { font-family:ui-monospace,"SF Mono",Menlo,monospace }
 .chart { width:100%; height:auto; display:block } .line { fill:none; stroke:url(#eqline); stroke-width:2.5; stroke-linejoin:round; stroke-linecap:round }
-.dot { fill:var(--solid); stroke:var(--accent); stroke-width:2.5 } .baseline { stroke:rgba(15,23,42,.18); stroke-dasharray:3 5 }
+.dot { fill:var(--solid); stroke:var(--accent); stroke-width:2.5 } .baseline { stroke:var(--base); stroke-dasharray:3 5 }
 a { color:var(--accent); text-decoration:none; font-weight:550 } a:hover { text-decoration:underline }
 footer { color:var(--muted); font-size:12px; text-align:center; margin:10px 0 28px }
 a, button { position:relative; overflow:hidden; transition:transform .12s ease, background .2s, color .2s, box-shadow .2s }
@@ -135,14 +142,14 @@ a:active { transform:scale(.96) }
 .ripple { position:absolute; border-radius:50%; pointer-events:none; background:currentColor; opacity:.22; transform:scale(0); animation:ripple .55s ease-out forwards }
 @keyframes ripple { to { transform:scale(2.6); opacity:0 } }
 nav.tabs, .pills { display:flex; gap:4px; flex-wrap:wrap; margin-bottom:14px }
-nav.tabs { padding:4px; border-radius:14px; background:rgba(255,255,255,.6); -webkit-backdrop-filter:blur(12px); backdrop-filter:blur(12px);
+nav.tabs { padding:4px; border-radius:14px; background:var(--glass); -webkit-backdrop-filter:blur(12px); backdrop-filter:blur(12px);
   outline:1px solid var(--line); outline-offset:-1px; box-shadow:var(--shadow); width:max-content; max-width:100% }
 nav.tabs a { padding:8px 16px; border-radius:10px; color:var(--muted); font-weight:600; font-size:14px; text-decoration:none }
 nav.tabs a.on { color:#fff; background:linear-gradient(135deg,var(--accent),var(--accent2)); box-shadow:0 6px 16px -6px var(--glow) }
-nav.tabs a:not(.on):hover { color:var(--text); background:rgba(15,23,42,.04) }
-nav.bots { margin:0 0 0 auto }
+nav.tabs a:not(.on):hover { color:var(--text); background:var(--hover) }
+nav.bots { margin:0 }
 nav.bots a { padding:7px 16px; font-size:14px }
-@media (max-width:480px) { header.top { flex-wrap:wrap } nav.bots { margin:4px 0 0; width:100% } nav.bots a { flex:1; text-align:center } }
+@media (max-width:480px) { header.top { flex-wrap:wrap } nav.bots { margin:4px 0 0; width:100%; order:5 } nav.bots a { flex:1; text-align:center } }
 .pills a { padding:6px 13px; border-radius:999px; background:var(--card); color:var(--text); text-decoration:none; font-size:13.5px;
   outline:1px solid var(--line); outline-offset:-1px; font-weight:550 }
 .pills a.on { color:#fff; background:linear-gradient(135deg,var(--accent),var(--accent2)); outline-color:transparent }
@@ -170,25 +177,40 @@ svg.bars text { fill:var(--muted); font-size:16px } .chart.bars { max-width:560p
 svg.bars .b-up { fill:var(--up) } svg.bars .b-down { fill:var(--down) } svg.bars rect { rx:3px }
 .stats { display:grid; grid-template-columns:repeat(4,1fr); gap:10px; margin-top:12px }
 @media (max-width:560px) { .stats { grid-template-columns:repeat(2,1fr) } }
-.stats > div { padding:10px 12px; border-radius:12px; background:rgba(255,255,255,.6); outline:1px solid var(--line); outline-offset:-1px }
+.stats > div { padding:10px 12px; border-radius:12px; background:var(--glass); outline:1px solid var(--line); outline-offset:-1px }
 .stats div .v { font-weight:700 } .stats div .l { color:var(--muted); font-size:11.5px }
 .filters { display:flex; flex-direction:column; gap:8px; margin-bottom:14px } .filters .pills { margin:0 }
 .filters .pills span { color:var(--muted); font-size:12px; font-weight:600; text-transform:uppercase; letter-spacing:.05em; align-self:center; min-width:70px }
 code.mono { background:rgba(79,70,229,.07); padding:2px 6px; border-radius:6px; font-size:13px }
+.theme { flex:none; width:40px; height:40px; border-radius:12px; border:0; cursor:pointer; display:grid; place-items:center; color:var(--text);
+  background:var(--glass); -webkit-backdrop-filter:blur(12px); backdrop-filter:blur(12px); outline:1px solid var(--line); outline-offset:-1px; box-shadow:var(--shadow) }
+.theme:active { transform:scale(.92) } .theme svg { width:19px; height:19px; fill:none; stroke:currentColor; stroke-width:2; stroke-linecap:round; stroke-linejoin:round }
+.theme .moon { display:none } :root[data-theme="dark"] .theme .moon { display:block } :root[data-theme="dark"] .theme .sun { display:none }
+body, .card, nav.tabs, .periods a, .pills a { transition:background-color .3s, color .3s, transform .25s ease, box-shadow .25s ease }
 @media (prefers-reduced-motion:reduce) { *, *::before { animation:none !important; transition:none !important } }
 """
 
 
 _LOGO = ('<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 17l5-6 4 4 8-9"/><path d="M15 6h5v5"/></svg>')
 
+_SUN = ('<svg class="sun" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4"/>'
+        '<path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>')
+_MOON = '<svg class="moon" viewBox="0 0 24 24" aria-hidden="true"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>'
+
 _JS = """
 document.addEventListener('pointerdown', function (e) {
-  var a = e.target.closest('a'); if (!a) return;
+  var a = e.target.closest('a, button'); if (!a) return;
   var r = a.getBoundingClientRect(), d = Math.max(r.width, r.height), s = document.createElement('span');
   s.className = 'ripple'; s.style.width = s.style.height = d + 'px';
   s.style.left = (e.clientX - r.left - d / 2) + 'px'; s.style.top = (e.clientY - r.top - d / 2) + 'px';
   a.appendChild(s); setTimeout(function () { s.remove(); }, 600);
 });
+function toggleTheme() {
+  var d = document.documentElement, t = d.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
+  d.setAttribute('data-theme', t);
+  try { localStorage.setItem('theme', t); } catch (e) {}
+  var m = document.querySelector('meta[name=theme-color]'); if (m) m.content = t === 'dark' ? '#070b14' : '#f4f6fb';
+}
 setTimeout(function () { if (document.visibilityState === 'visible') location.reload(); }, 60000);
 document.addEventListener('visibilitychange', function () {
   if (document.visibilityState === 'visible' && performance.now() > 60000) location.reload();
@@ -206,12 +228,15 @@ def _page(title: str, tab: str, body: str) -> str:
 <html lang="de"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#f4f6fb">
+<script>try {{ if (localStorage.getItem('theme') === 'dark') {{ document.documentElement.setAttribute('data-theme', 'dark');
+document.querySelector('meta[name=theme-color]').content = '#070b14'; }} }} catch (e) {{}}</script>
 <title>{html.escape(title)}</title>
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>{_CSS}</style></head><body><main>
 <header class="top"><div class="logo">{_LOGO}</div><div><h1>{html.escape(title)}</h1>
-<div class="sub"><span class="pulse"></span>Live · Übungskonto · Stand {now}</div></div></header>
+<div class="sub"><span class="pulse"></span>Live · Übungskonto · Stand {now}</div></div><!--bots-->
+<button class="theme" type="button" onclick="toggleTheme()" aria-label="Hell oder dunkel" title="Hell / Dunkel">{_SUN}{_MOON}</button></header>
 <nav class="tabs">{tabs}</nav>
 {body}
 <footer>Aktualisiert sich jede Minute von selbst</footer>
@@ -815,7 +840,7 @@ def page_for(bots: list[Bot], bot: Bot, path: str, query: dict) -> tuple[str, st
     prefix = bot.prefix(bot is bots[0])
     if prefix:
         page = page.replace('href="/', f'href="{prefix}/').replace("href='/", f"href='{prefix}/")
-    page = page.replace("</header>", bot_switch(bots, bot) + "</header>", 1)
+    page = page.replace("<!--bots-->", bot_switch(bots, bot), 1)
     return page, "text/html; charset=utf-8"
 
 
