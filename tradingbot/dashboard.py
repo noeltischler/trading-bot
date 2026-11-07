@@ -124,7 +124,7 @@ main > :nth-child(6) { animation-delay:.12s } main > :nth-child(7) { animation-d
 .kpis .kpi:first-child { grid-column:1 / -1 }
 .kpis .kpi:first-child .v { font-size:34px; letter-spacing:-.02em; background:linear-gradient(90deg,var(--text),var(--accent));
   -webkit-background-clip:text; background-clip:text; color:transparent }
-@media (max-width:560px) { .kpis { grid-template-columns:repeat(3,1fr) } }
+@media (max-width:560px) { .kpis { grid-template-columns:repeat(2,1fr) } }
 .kpi .v { font-size:20px; font-weight:700; letter-spacing:-.01em } .kpi .l { color:var(--muted); font-size:12.5px }
 .kpis .kpi .v.up { color:var(--up) } .kpis .kpi .v.down { color:var(--down) }
 table { width:100%; border-collapse:collapse; font-size:13.5px }
@@ -520,11 +520,32 @@ def _notify_html(account: PaperAccount) -> str:
             f'<p class="muted" style="margin:8px 0 0">Der Kanalname ist wie ein Passwort: nicht weitergeben.</p></section>')
 
 
+def _last_price(account: PaperAccount, coin: str) -> float | None:
+    """Letzter gespeicherter Kurs eines Coins (vom Bot alle paar Minuten aktualisiert)."""
+    raw = account.get_state(f"price:{coin}")
+    try:
+        return float(raw.split(":")[0]) if raw else None
+    except ValueError:
+        return None
+
+
+def open_pnls(account: PaperAccount, positions: dict) -> dict:
+    """Ergebnis jeder offenen Position zum letzten Kurs, inklusive Kosten (None ohne Kurs)."""
+    out = {}
+    for coin, pos in positions.items():
+        price = _last_price(account, coin)
+        out[coin] = pos.pnl(price, account.fee_pct) if price else None
+    return out
+
+
 def render(account: PaperAccount, title: str = "Trading-Bot", period: str | None = None, now: int | None = None) -> str:
-    balance, start = account.balance, account.start_equity
-    change = 100 * (balance / start - 1)
+    cash, start = account.balance, account.start_equity
     trades = account.trades()
     positions = account.positions()
+    pnls = open_pnls(account, positions)
+    open_total = sum(v for v in pnls.values() if v is not None)
+    balance = cash + open_total  # Kontostand inklusive offener Gewinne und Verluste
+    change = 100 * (balance / start - 1)
     wins = sum(1 for t in trades if t["pnl"] > 0)
     win_rate = f"{100 * wins / len(trades):.0f} %" if trades else "–"
     anchors = account.anchors()[-5:] if hasattr(account, "anchors") else []
@@ -544,13 +565,16 @@ def render(account: PaperAccount, title: str = "Trading-Bot", period: str | None
     points = [(since, start + before)] + [(t["closed_at"], t["balance"]) for t in in_period]
     if in_period:
         points.append((now, in_period[-1]["balance"]))
+    if positions:
+        points.append((now, balance))  # letzter Punkt mit offenen Positionen
 
     pos_rows = "".join(
         f"<tr><td><a href='/chart?coin={quote(c)}'>{html.escape(c)}</a></td><td class='{'up' if p.side == LONG else 'down'}'>{'Long' if p.side == LONG else 'Short'}</td>"
+        f"<td class='{'up' if (pnls[c] or 0) > 0 else 'down' if (pnls[c] or 0) < 0 else ''}'><b>{_signed(pnls[c]) + ' $' if pnls[c] is not None else '–'}</b></td>"
         f"<td>{_money(p.entry)}</td><td>{_money(p.stop)}</td><td>{_fmt_time(p.opened_at)}</td>"
         f"<td>{html.escape(p.strategy or '–')}</td></tr>"
         for c, p in positions.items()
-    ) or "<tr><td colspan='6' class='muted'>Keine offene Position</td></tr>"
+    ) or "<tr><td colspan='7' class='muted'>Keine offene Position</td></tr>"
 
     anchor_rows = "".join(
         f"<tr><td>{html.escape(a['day'])}</td><td class='mono'>{a['hash'][:16]}…</td>"
@@ -560,8 +584,9 @@ def render(account: PaperAccount, title: str = "Trading-Bot", period: str | None
 
     unit_name = {"hour": "Stunde", "day": "Tag", "week": "Woche", "month": "Monat"}[unit]
     body = f"""<section class="card kpis">
-  <div class="kpi"><div class="v">{_money(balance)} $</div><div class="l">Kontostand</div></div>
-  <div class="kpi"><div class="v {'up' if change >= 0 else 'down'}">{f'{change:+.2f}'.replace('.', ',')} %</div><div class="l">seit Start ({_money(start)} $)</div></div>
+  <div class="kpi"><div class="v">{_money(balance)} $</div><div class="l">Kontostand gesamt · <b class="{'up' if change >= 0 else 'down'}">{f'{change:+.2f}'.replace('.', ',')} %</b> seit Start ({_money(start)} $)</div></div>
+  <div class="kpi"><div class="v">{_money(cash)} $</div><div class="l">Kapital</div></div>
+  <div class="kpi"><div class="v {'up' if open_total > 0 else 'down' if open_total < 0 else ''}">{_signed(open_total)} $</div><div class="l">Offene Positionen ({len(positions)})</div></div>
   <div class="kpi"><div class="v">{len(trades)}</div><div class="l">Trades</div></div>
   <div class="kpi"><div class="v">{win_rate}</div><div class="l">Trefferquote</div></div>
 </section>
@@ -571,7 +596,8 @@ def render(account: PaperAccount, title: str = "Trading-Bot", period: str | None
 <p class="legend">Tipp auf einen Balken für Details.</p>
 {_stats_html(_stats(in_period))}
 <p style="margin:10px 0 0"><a href="/trades?p={period}">Diese Trades ansehen →</a></p></section>
-<section class="card"><h2>Offene Positionen</h2><table><tr><th>Coin</th><th>Seite</th><th>Einstieg</th><th>Stop</th><th>Seit</th><th>Strategie</th></tr>{pos_rows}</table></section>
+<section class="card"><h2>Offene Positionen</h2><table><tr><th>Coin</th><th>Seite</th><th>Jetzt</th><th>Einstieg</th><th>Stop</th><th>Seit</th><th>Strategie</th></tr>{pos_rows}</table>
+<p class="legend">„Jetzt“ = Ergebnis zum aktuellen Kurs. Gesamt = Kapital + offene Positionen.</p></section>
 <section class="card"><h2>Letzte Trades</h2>{_trade_table(trades[-10:])}<p style="margin:10px 0 0"><a href="/trades">Alle Trades →</a></p></section>
 {_market_html(account, now)}
 {_notify_html(account)}
