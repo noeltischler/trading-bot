@@ -214,3 +214,22 @@ def test_trade_and_bar_tips():
     assert "BTC · Long" in tip and "+10,00 %" in tip and "+0,50 %" in tip and "+50,00 $" in tip and "Keil 80" in tip
     tips = bucket_tips([t], 0, 86400 * 2, "day")
     assert len(tips) == 3 and "Trades" in tips[0] and "+50,00 $" in tips[0] and "BTC Long" in tips[0]
+
+
+def test_overview_balance_includes_open_positions():
+    acc = PaperAccount(":memory:", fee_pct=0.0)
+    pos = Position.open("ETH", SHORT, 2000.0, acc.balance, 1.0, 1.0, _ts("2026-10-03"))
+    acc.open(pos)
+    acc.set_state("price:ETH", f"1900.0:{_ts('2026-10-04')}")
+    gain = pos.pnl(1900.0, 0.0)
+    assert gain > 0
+    page = render(acc, now=_ts("2026-10-04"))
+    total = acc.balance + gain
+    from tradingbot.dashboard import _money, _signed
+    assert f"{_money(total)} $" in page
+    assert f"{_money(acc.balance)} $</div><div class=\"l\">Kapital" in page
+    assert f"{_signed(gain)} $</div><div class=\"l\">Offene Positionen (1)" in page and "<th>Jetzt</th>" in page
+    # ohne Kurs bleibt der Kontostand beim Bargeld
+    acc2 = PaperAccount(":memory:", fee_pct=0.0)
+    acc2.open(Position.open("ETH", SHORT, 2000.0, acc2.balance, 1.0, 1.0, _ts("2026-10-03")))
+    assert f"{_money(acc2.balance)} $" in render(acc2)
