@@ -83,7 +83,7 @@ echo
 echo "Fertig! Der Bot läuft rund um die Uhr."
 echo "Dashboard:  https://$HOST"
 echo "            oben umschalten: Krypto | Gold  (Gold direkt: https://$HOST/gold/)"
-echo "Benutzer:   beliebig (z. B. noel)"
+echo "Anmelden:   nur Passwort eingeben, abmelden mit dem Knopf oben rechts"
 echo "Passwort:   $DASHBOARD_PASSWORD"
 echo
 echo "Nützlich:   journalctl -u tradingbot -f     (Live-Protokoll, Strg+C beendet)"
