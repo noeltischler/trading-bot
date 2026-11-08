@@ -233,3 +233,62 @@ def test_overview_balance_includes_open_positions():
     acc2 = PaperAccount(":memory:", fee_pct=0.0)
     acc2.open(Position.open("ETH", SHORT, 2000.0, acc2.balance, 1.0, 1.0, _ts("2026-10-03")))
     assert f"{_money(acc2.balance)} $" in render(acc2)
+
+
+def test_login_logout_with_session_cookie(tmp_path):
+    import socket, threading, time, urllib.error, urllib.request
+    from tradingbot.dashboard import serve, session_token, session_valid
+
+    assert session_valid(session_token("geheim"), "geheim")
+    assert not session_valid(session_token("geheim"), "anders")  # neues Passwort -> alte Anmeldung ungültig
+    assert not session_valid(session_token("geheim", now=0), "geheim")  # abgelaufen
+    assert not session_valid("kaputt", "geheim")
+
+    db = str(tmp_path / "paper.db")
+    PaperAccount(db)
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        port = s.getsockname()[1]
+    threading.Thread(target=serve, kwargs=dict(db_path=db, port=port, password="geheim"), daemon=True).start()
+    base = f"http://127.0.0.1:{port}"
+    for _ in range(50):
+        try:
+            socket.create_connection(("127.0.0.1", port), timeout=0.1).close()
+            break
+        except OSError:
+            time.sleep(0.05)
+
+    class NoRedirect(urllib.request.HTTPRedirectHandler):
+        def redirect_request(self, *a, **k):
+            return None
+
+    opener = urllib.request.build_opener(NoRedirect)
+
+    def req(path, data=None, cookie=None):
+        r = urllib.request.Request(base + path, data=data.encode() if data else None)
+        if cookie:
+            r.add_header("Cookie", cookie)
+        try:
+            resp = opener.open(r)
+        except urllib.error.HTTPError as e:
+            resp = e
+        return resp.status, resp.headers, resp.read().decode("utf-8", "replace")
+
+    code, headers, _ = req("/trades")
+    assert code == 303 and headers["Location"] == "/login?next=/trades"
+    code, _, body = req("/login")
+    assert code == 200 and 'type="password"' in body
+    code, _, body = req("/login", "password=falsch&next=/trades")
+    assert code == 401 and "Falsches Passwort" in body
+    code, headers, _ = req("/login", "password=geheim&next=//evil.example")
+    assert code == 303 and headers["Location"] == "/"
+    cookie = headers["Set-Cookie"].split(";")[0]
+    assert "HttpOnly" in headers["Set-Cookie"]
+    code, _, body = req("/", cookie=cookie)
+    assert code == 200 and 'href="/logout"' in body and "Kontostand" in body
+    code, headers, _ = req("/logout", cookie=cookie)
+    assert code == 303 and headers["Location"] == "/login" and "Max-Age=0" in headers["Set-Cookie"]
+
+
+def test_no_logout_button_without_password():
+    assert "/logout" not in render(PaperAccount(":memory:"))

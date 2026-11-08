@@ -8,7 +8,8 @@ Mit DASHBOARD_PASSWORD (Umgebungsvariable) ist die Seite passwortgeschützt.
 
 from __future__ import annotations
 
-import base64
+import time
+from http.cookies import SimpleCookie
 import hmac
 import html
 import os
@@ -184,6 +185,7 @@ svg.bars .b-up { fill:var(--up) } svg.bars .b-down { fill:var(--down) } svg.bars
 code.mono { background:rgba(79,70,229,.07); padding:2px 6px; border-radius:6px; font-size:13px }
 .theme { flex:none; width:40px; height:40px; border-radius:12px; border:0; cursor:pointer; display:grid; place-items:center; color:var(--text);
   background:var(--glass); -webkit-backdrop-filter:blur(12px); backdrop-filter:blur(12px); outline:1px solid var(--line); outline-offset:-1px; box-shadow:var(--shadow) }
+.theme.logout { text-decoration:none } .theme.logout:hover { color:var(--down) }
 .theme:active { transform:scale(.92) } .theme svg { width:19px; height:19px; fill:none; stroke:currentColor; stroke-width:2; stroke-linecap:round; stroke-linejoin:round }
 .theme .moon { display:none } :root[data-theme="dark"] .theme .moon { display:block } :root[data-theme="dark"] .theme .sun { display:none }
 body, .card, nav.tabs, .periods a, .pills a { transition:background-color .3s, color .3s, transform .25s ease, box-shadow .25s ease }
@@ -207,6 +209,9 @@ _LOGO = ('<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 17l5-6 4 4 8-9
 
 _SUN = ('<svg class="sun" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4"/>'
         '<path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>')
+_LOGOUT = ('<a class="theme logout" href="/logout" aria-label="Abmelden" title="Abmelden">'
+           '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>'
+           '<path d="M16 17l5-5-5-5"/><path d="M21 12H9"/></svg></a>')
 _MOON = '<svg class="moon" viewBox="0 0 24 24" aria-hidden="true"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>'
 
 _JS = """
@@ -263,7 +268,7 @@ document.querySelector('meta[name=theme-color]').content = '#070b14'; }} }} catc
 <style>{_CSS}</style></head><body><main>
 <header class="top"><div class="logo">{_LOGO}</div><div><h1>{html.escape(title)}</h1>
 <div class="sub"><span class="pulse"></span>Live · Übungskonto · Stand {now}</div></div><!--bots-->
-<button class="theme" type="button" onclick="toggleTheme()" aria-label="Hell oder dunkel" title="Hell / Dunkel">{_SUN}{_MOON}</button></header>
+<button class="theme" type="button" onclick="toggleTheme()" aria-label="Hell oder dunkel" title="Hell / Dunkel">{_SUN}{_MOON}</button><!--logout--></header>
 <nav class="tabs">{tabs}</nav>
 {body}
 <footer>Aktualisiert sich jede Minute von selbst</footer>
@@ -962,6 +967,53 @@ def page_for(bots: list[Bot], bot: Bot, path: str, query: dict) -> tuple[str, st
     return page, "text/html; charset=utf-8"
 
 
+SESSION_COOKIE = "tb_session"
+SESSION_DAYS = 30
+
+
+def session_token(password: str, now: int | None = None) -> str:
+    """Anmelde-Cookie: Ablaufzeit plus Unterschrift mit dem Passwort.
+    Ein neues Passwort macht alle alten Anmeldungen ungültig."""
+    expires = _now(now) + SESSION_DAYS * 86400
+    sig = hmac.new(password.encode(), str(expires).encode(), "sha256").hexdigest()
+    return f"{expires}.{sig}"
+
+
+def session_valid(token: str, password: str, now: int | None = None) -> bool:
+    expires, _, sig = token.partition(".")
+    if not expires.isdigit() or int(expires) < _now(now):
+        return False
+    good = hmac.new(password.encode(), expires.encode(), "sha256").hexdigest()
+    return hmac.compare_digest(sig, good)
+
+
+def login_page(title: str, error: bool = False, next_url: str = "/") -> str:
+    msg = '<p class="down" style="margin:0 0 12px">Falsches Passwort. Bitte nochmal versuchen.</p>' if error else ""
+    return f"""<!doctype html>
+<html lang="de"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<script>try {{ if (localStorage.getItem('theme') === 'dark') document.documentElement.setAttribute('data-theme', 'dark'); }} catch (e) {{}}</script>
+<title>Anmelden · {html.escape(title)}</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>{_CSS}
+.login {{ max-width:380px; margin:12vh auto 0 }}
+.login input {{ width:100%; box-sizing:border-box; font:inherit; font-size:16px; padding:12px 14px; border-radius:12px; border:0;
+  outline:1px solid var(--line); background:var(--glass); color:var(--text); margin:0 0 12px }}
+.login button {{ width:100%; font:inherit; font-weight:600; font-size:16px; padding:12px; border:0; border-radius:12px; color:#fff; cursor:pointer;
+  background:linear-gradient(90deg,#4f46e5,#06b6d4) }}
+</style></head><body><main>
+<section class="card login">
+<header class="top"><div class="logo">{_LOGO}</div><div><h1>{html.escape(title)}</h1><div class="sub">Bitte anmelden</div></div></header>
+{msg}<form method="post" action="/login"><input type="hidden" name="next" value="{html.escape(next_url)}">
+<input type="password" name="password" placeholder="Passwort" autocomplete="current-password" autofocus required>
+<button type="submit">Anmelden</button></form>
+</section></main></body></html>"""
+
+
+def _safe_next(url: str) -> str:
+    return url if url.startswith("/") and not url.startswith("//") and "\\" not in url else "/"
+
+
 def serve(db_path: str | None = None, start_equity: float = 10_000.0, fee_pct: float = 0.1, port: int = 8080,
           password: str | None = None, title: str = "Trading-Bot", host: str = "127.0.0.1",
           coins: list[str] | None = None, timeframe: str = "1h", bots: list[Bot] | None = None) -> None:
@@ -971,12 +1023,14 @@ def serve(db_path: str | None = None, start_equity: float = 10_000.0, fee_pct: f
 
     class Handler(BaseHTTPRequestHandler):
         def do_GET(self):  # noqa: N802
-            if password and not self._authorized():
-                self.send_response(401)
-                self.send_header("WWW-Authenticate", 'Basic realm="Trading-Bot"')
-                self.end_headers()
-                return
             url = urlparse(self.path)
+            if password:
+                if url.path == "/login":
+                    return self._send(200, login_page(title, next_url=_safe_next(parse_qs(url.query).get("next", ["/"])[0])))
+                if url.path.endswith("/logout"):
+                    return self._redirect("/login", f"{SESSION_COOKIE}=; Max-Age=0; Path=/; HttpOnly; Secure; SameSite=Lax")
+                if not self._authorized():
+                    return self._redirect("/login?next=" + quote(_safe_next(self.path)))
             found = route(bots, url.path)
             if found is None:
                 self.send_response(404)
@@ -984,25 +1038,53 @@ def serve(db_path: str | None = None, start_equity: float = 10_000.0, fee_pct: f
                 return
             bot, path = found
             page, content_type = page_for(bots, bot, path, parse_qs(url.query))
+            if password:
+                page = page.replace("<!--logout-->", _LOGOUT, 1)
             csv = path == "/trades.csv"
+            self._send(200, page, content_type, csv)
+
+        def do_POST(self):  # noqa: N802
+            if not password or urlparse(self.path).path != "/login":
+                self.send_response(404)
+                self.end_headers()
+                return
+            length = min(int(self.headers.get("Content-Length") or 0), 4096)
+            form = parse_qs(self.rfile.read(length).decode("utf-8", "replace"))
+            given = form.get("password", [""])[0]
+            next_url = _safe_next(form.get("next", ["/"])[0])
+            if hmac.compare_digest(given.encode(), password.encode()):
+                return self._redirect(next_url, f"{SESSION_COOKIE}={session_token(password)}; Max-Age={SESSION_DAYS * 86400}; "
+                                                "Path=/; HttpOnly; Secure; SameSite=Lax")
+            time.sleep(1)  # bremst Durchprobieren von Passwörtern
+            self._send(401, login_page(title, error=True, next_url=next_url))
+
+        def _send(self, code: int, page: str, content_type: str = "text/html; charset=utf-8", csv: bool = False):
             body = page.encode("utf-8-sig" if csv else "utf-8")
-            self.send_response(200)
+            self.send_response(code)
             self.send_header("Content-Type", content_type)
+            self.send_header("Cache-Control", "no-store")
             if csv:
                 self.send_header("Content-Disposition", 'attachment; filename="trades.csv"')
             self.send_header("Content-Length", str(len(body)))
             self.end_headers()
             self.wfile.write(body)
 
+        def _redirect(self, where: str, cookie: str | None = None):
+            self.send_response(303)
+            self.send_header("Location", where)
+            if cookie:
+                self.send_header("Set-Cookie", cookie)
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+
         def _authorized(self) -> bool:
-            header = self.headers.get("Authorization", "")
-            if not header.startswith("Basic "):
-                return False
+            jar = SimpleCookie()
             try:
-                _, _, given = base64.b64decode(header[6:]).decode().partition(":")
+                jar.load(self.headers.get("Cookie", ""))
             except Exception:
                 return False
-            return hmac.compare_digest(given, password)
+            morsel = jar.get(SESSION_COOKIE)
+            return bool(morsel) and session_valid(morsel.value, password)
 
         def log_message(self, *args):
             pass
