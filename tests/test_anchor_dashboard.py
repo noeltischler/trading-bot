@@ -286,6 +286,8 @@ def test_login_logout_with_session_cookie(tmp_path):
     assert "HttpOnly" in headers["Set-Cookie"]
     code, _, body = req("/", cookie=cookie)
     assert code == 200 and 'href="/logout"' in body and "Kontostand" in body
+    menu = body.split('<nav class="menu"', 1)[1].split("</nav>", 1)[0]
+    assert 'href="/logout"' in menu and 'id="wchip"' in body.split("<header", 1)[1].split("</header>", 1)[0]
     code, headers, _ = req("/logout", cookie=cookie)
     assert code == 303 and headers["Location"] == "/login" and "Max-Age=0" in headers["Set-Cookie"]
 

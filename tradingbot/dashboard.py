@@ -143,7 +143,7 @@ a:active { transform:scale(.96) }
 .ripple { position:absolute; border-radius:50%; pointer-events:none; background:currentColor; opacity:.22; transform:scale(0); animation:ripple .55s ease-out forwards }
 @keyframes ripple { to { transform:scale(2.6); opacity:0 } }
 nav.menu { position:fixed; z-index:40; left:12px; right:12px; bottom:calc(10px + env(safe-area-inset-bottom)); display:grid;
-  grid-template-columns:repeat(4,1fr); gap:4px; padding:6px; border-radius:20px; background:var(--glass);
+  grid-auto-flow:column; grid-auto-columns:1fr; gap:4px; padding:6px; border-radius:20px; background:var(--glass);
   -webkit-backdrop-filter:blur(18px) saturate(160%); backdrop-filter:blur(18px) saturate(160%);
   outline:1px solid var(--line); outline-offset:-1px; box-shadow:0 12px 32px -10px rgba(15,23,42,.28) }
 nav.menu .menu-brand { display:none }
@@ -152,6 +152,18 @@ nav.menu a { display:flex; flex-direction:column; align-items:center; gap:2px; p
 nav.menu a svg { width:22px; height:22px; fill:none; stroke:currentColor; stroke-width:1.9; stroke-linecap:round; stroke-linejoin:round }
 nav.menu a.on { color:#fff; background:linear-gradient(135deg,var(--accent),var(--accent2)); box-shadow:0 6px 16px -6px var(--glow) }
 nav.menu a:not(.on):hover { color:var(--text); background:var(--hover); text-decoration:none }
+nav.menu a.out:hover { color:var(--down) }
+.wchip { flex:none; height:40px; display:flex; align-items:center; gap:8px; padding:0 14px 0 12px; border-radius:12px; border:0; cursor:pointer;
+  font:inherit; font-size:13.5px; font-weight:650; color:#fff; background:linear-gradient(135deg,var(--accent),var(--accent2));
+  box-shadow:0 6px 16px -6px var(--glow) }
+.wchip svg { width:18px; height:18px; fill:none; stroke:currentColor; stroke-width:1.9; stroke-linecap:round; stroke-linejoin:round }
+.wchip .dot { display:none; width:8px; height:8px; border-radius:50%; background:var(--up); box-shadow:0 0 0 3px rgba(16,185,129,.18) }
+.wchip.on { color:var(--text); background:var(--glass); -webkit-backdrop-filter:blur(12px); backdrop-filter:blur(12px);
+  outline:1px solid var(--line); outline-offset:-1px; box-shadow:var(--shadow); font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:12.5px }
+.wchip.on .dot { display:block } .wchip.on svg { display:none }
+.wchip:active { transform:scale(.95) }
+.wchip .short { display:none }
+@media (max-width:560px) { .wchip { padding:0 11px; gap:6px } .wchip.on { font-size:12px } .wchip:not(.on) .long { display:none } .wchip:not(.on) .short { display:inline } }
 main { padding-bottom:100px }
 @media (min-width:1000px) {
   nav.menu { left:18px; right:auto; top:18px; bottom:18px; width:216px; display:flex; flex-direction:column; gap:4px; padding:14px 10px }
@@ -160,6 +172,7 @@ main { padding-bottom:100px }
   nav.menu .menu-brand .logo svg { width:17px; height:17px }
   nav.menu a { flex-direction:row; gap:12px; padding:11px 14px; font-size:14.5px }
   nav.menu a svg { width:20px; height:20px }
+  nav.menu a.out { margin-top:auto }
   body { padding-left:236px } main { padding-bottom:8px }
 }
 .btn { font:inherit; font-weight:650; font-size:15px; padding:11px 20px; border:0; border-radius:12px; color:#fff; cursor:pointer;
@@ -214,7 +227,6 @@ svg.bars .b-up { fill:var(--up) } svg.bars .b-down { fill:var(--down) } svg.bars
 code.mono { background:rgba(79,70,229,.07); padding:2px 6px; border-radius:6px; font-size:13px }
 .theme { flex:none; width:40px; height:40px; border-radius:12px; border:0; cursor:pointer; display:grid; place-items:center; color:var(--text);
   background:var(--glass); -webkit-backdrop-filter:blur(12px); backdrop-filter:blur(12px); outline:1px solid var(--line); outline-offset:-1px; box-shadow:var(--shadow) }
-.theme.logout { text-decoration:none } .theme.logout:hover { color:var(--down) }
 .theme:active { transform:scale(.92) } .theme svg { width:19px; height:19px; fill:none; stroke:currentColor; stroke-width:2; stroke-linecap:round; stroke-linejoin:round }
 .theme .moon { display:none } :root[data-theme="dark"] .theme .moon { display:block } :root[data-theme="dark"] .theme .sun { display:none }
 body, .card, nav.tabs, .periods a, .pills a { transition:background-color .3s, color .3s, transform .25s ease, box-shadow .25s ease }
@@ -238,9 +250,9 @@ _LOGO = ('<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 17l5-6 4 4 8-9
 
 _SUN = ('<svg class="sun" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4"/>'
         '<path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>')
-_LOGOUT = ('<a class="theme logout" href="/logout" aria-label="Abmelden" title="Abmelden">'
+_LOGOUT = ('<a class="out" href="/logout" title="Abmelden">'
            '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>'
-           '<path d="M16 17l5-5-5-5"/><path d="M21 12H9"/></svg></a>')
+           '<path d="M16 17l5-5-5-5"/><path d="M21 12H9"/></svg><span>Abmelden</span></a>')
 _MOON = '<svg class="moon" viewBox="0 0 24 24" aria-hidden="true"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>'
 
 _JS = """
@@ -272,6 +284,23 @@ function toggleTheme() {
   try { localStorage.setItem('theme', t); } catch (e) {}
   var m = document.querySelector('meta[name=theme-color]'); if (m) m.content = t === 'dark' ? '#070b14' : '#f4f6fb';
 }
+function hlAddr() { try { return localStorage.getItem('hl_addr'); } catch (e) { return null; } }
+function chipShow() {
+  var c = document.getElementById('wchip'), a = hlAddr(); if (!c) return;
+  c.classList.toggle('on', !!a);
+  var n = window.innerWidth < 560 ? 4 : 6;
+  c.querySelector('.long').textContent = a ? a.slice(0, n) + '…' + a.slice(-4) : 'Wallet verbinden';
+  c.title = a ? 'Verbunden: ' + a : 'Wallet verbinden';
+}
+function walletChip() {
+  var onWallet = !!document.getElementById('wallet'), link = document.querySelector('nav.menu a[href$="wallet"]');
+  if (onWallet && !hlAddr()) { connect(); return; }
+  if (hlAddr() || !window.ethereum) { if (!onWallet && link) location.href = link.href; return; }
+  window.ethereum.request({ method: 'eth_requestAccounts' }).then(function (acc) {
+    try { localStorage.setItem('hl_addr', acc[0]); } catch (e) {} chipShow();
+  }).catch(function () {});
+}
+chipShow();
 var autoReload = !document.body.hasAttribute('data-noreload');
 setTimeout(function () { if (autoReload && document.visibilityState === 'visible') location.reload(); }, 60000);
 document.addEventListener('visibilitychange', function () {
@@ -295,7 +324,10 @@ def _page(title: str, tab: str, body: str, script: str = "", reload: bool = True
         f'<a href="{href}" class="{"on" if key == tab else ""}"><svg viewBox="0 0 24 24" aria-hidden="true">{_ICONS[key]}</svg>'
         f'<span>{label}</span></a>'
         for key, href, label in MENU
-    )
+    ) + "<!--logout-->"
+    chip = ('<button class="wchip" id="wchip" type="button" onclick="walletChip()">'
+            f'<svg viewBox="0 0 24 24" aria-hidden="true">{_ICONS["wallet"]}</svg><i class="dot"></i>'
+            '<span class="long">Wallet verbinden</span><span class="short">Wallet</span></button>')
     return f"""<!doctype html>
 <html lang="de"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
@@ -310,7 +342,7 @@ document.querySelector('meta[name=theme-color]').content = '#070b14'; }} }} catc
 <main>
 <header class="top"><div class="logo">{_LOGO}</div><div><h1>{html.escape(title)}</h1>
 <div class="sub"><span class="pulse"></span>Live · Übungskonto · Stand {now}</div></div><!--bots-->
-<button class="theme" type="button" onclick="toggleTheme()" aria-label="Hell oder dunkel" title="Hell / Dunkel">{_SUN}{_MOON}</button><!--logout--></header>
+{chip}<button class="theme" type="button" onclick="toggleTheme()" aria-label="Hell oder dunkel" title="Hell / Dunkel">{_SUN}{_MOON}</button></header>
 {body}
 <footer>{"Aktualisiert sich jede Minute von selbst" if reload else "Daten kommen direkt von der Hyperliquid-Blockchain"}</footer>
 </main><script>{_JS}{script}</script></body></html>"""
@@ -1005,14 +1037,14 @@ function api(path, body) {
 function show(a) {
   addr = a; try { localStorage.setItem('hl_addr', a); } catch (e) {}
   $('w-addr').textContent = a.slice(0, 6) + '…' + a.slice(-4); $('w-dest').value = a;
-  $('w-on').hidden = false; $('w-off').hidden = true; load();
+  $('w-on').hidden = false; $('w-off').hidden = true; chipShow(); load();
 }
 function connect() {
   if (!window.ethereum) { msg('Keine Wallet gefunden. Öffne das Dashboard im Browser der MetaMask-App oder installiere MetaMask/Rabby.', true); return; }
   window.ethereum.request({ method: 'eth_requestAccounts' }).then(function (acc) { show(acc[0]); })
     .catch(function (e) { msg('Verbinden abgebrochen: ' + (e.message || e), true); });
 }
-function disconnect() { addr = null; try { localStorage.removeItem('hl_addr'); } catch (e) {} $('w-on').hidden = true; $('w-off').hidden = false; }
+function disconnect() { addr = null; try { localStorage.removeItem('hl_addr'); } catch (e) {} $('w-on').hidden = true; $('w-off').hidden = false; chipShow(); }
 function load() {
   if (!addr) return;
   $('w-state').innerHTML = '<p class="muted">Lade Daten von Hyperliquid …</p>';
