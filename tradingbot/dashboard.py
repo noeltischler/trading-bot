@@ -142,6 +142,35 @@ a, button { position:relative; overflow:hidden; transition:transform .12s ease, 
 a:active { transform:scale(.96) }
 .ripple { position:absolute; border-radius:50%; pointer-events:none; background:currentColor; opacity:.22; transform:scale(0); animation:ripple .55s ease-out forwards }
 @keyframes ripple { to { transform:scale(2.6); opacity:0 } }
+nav.menu { position:fixed; z-index:40; left:12px; right:12px; bottom:calc(10px + env(safe-area-inset-bottom)); display:grid;
+  grid-template-columns:repeat(4,1fr); gap:4px; padding:6px; border-radius:20px; background:var(--glass);
+  -webkit-backdrop-filter:blur(18px) saturate(160%); backdrop-filter:blur(18px) saturate(160%);
+  outline:1px solid var(--line); outline-offset:-1px; box-shadow:0 12px 32px -10px rgba(15,23,42,.28) }
+nav.menu .menu-brand { display:none }
+nav.menu a { display:flex; flex-direction:column; align-items:center; gap:2px; padding:7px 4px 6px; border-radius:14px;
+  color:var(--muted); font-size:11.5px; font-weight:600; text-decoration:none }
+nav.menu a svg { width:22px; height:22px; fill:none; stroke:currentColor; stroke-width:1.9; stroke-linecap:round; stroke-linejoin:round }
+nav.menu a.on { color:#fff; background:linear-gradient(135deg,var(--accent),var(--accent2)); box-shadow:0 6px 16px -6px var(--glow) }
+nav.menu a:not(.on):hover { color:var(--text); background:var(--hover); text-decoration:none }
+main { padding-bottom:100px }
+@media (min-width:1000px) {
+  nav.menu { left:18px; right:auto; top:18px; bottom:18px; width:216px; display:flex; flex-direction:column; gap:4px; padding:14px 10px }
+  nav.menu .menu-brand { display:flex; align-items:center; gap:10px; padding:4px 8px 18px; font-size:15px }
+  nav.menu .menu-brand .logo { width:32px; height:32px; border-radius:9px }
+  nav.menu .menu-brand .logo svg { width:17px; height:17px }
+  nav.menu a { flex-direction:row; gap:12px; padding:11px 14px; font-size:14.5px }
+  nav.menu a svg { width:20px; height:20px }
+  body { padding-left:236px } main { padding-bottom:8px }
+}
+.btn { font:inherit; font-weight:650; font-size:15px; padding:11px 20px; border:0; border-radius:12px; color:#fff; cursor:pointer;
+  background:linear-gradient(135deg,var(--accent),var(--accent2)); box-shadow:0 6px 16px -6px var(--glow) }
+.btn:active { transform:scale(.97) }
+.w-form { display:grid; gap:12px; max-width:440px } .w-form label { display:grid; gap:6px; font-size:13.5px; font-weight:600 }
+.w-form input { font:inherit; font-size:16px; font-weight:500; padding:11px 13px; border-radius:12px; border:0; outline:1px solid var(--line);
+  background:var(--glass); color:var(--text); width:100% } .w-form input:focus { outline:2px solid var(--accent) }
+.w-msg { margin:10px 0 0; font-weight:600; font-size:13.5px } .w-msg:empty { display:none }
+ol.steps { margin:0; padding-left:20px; line-height:1.65 } ol.steps li { margin-bottom:6px }
+[hidden] { display:none !important }
 nav.tabs, .pills { display:flex; gap:4px; flex-wrap:wrap; margin-bottom:14px }
 nav.tabs { padding:4px; border-radius:14px; background:var(--glass); -webkit-backdrop-filter:blur(12px); backdrop-filter:blur(12px);
   outline:1px solid var(--line); outline-offset:-1px; box-shadow:var(--shadow); width:max-content; max-width:100% }
@@ -243,18 +272,29 @@ function toggleTheme() {
   try { localStorage.setItem('theme', t); } catch (e) {}
   var m = document.querySelector('meta[name=theme-color]'); if (m) m.content = t === 'dark' ? '#070b14' : '#f4f6fb';
 }
-setTimeout(function () { if (document.visibilityState === 'visible') location.reload(); }, 60000);
+var autoReload = !document.body.hasAttribute('data-noreload');
+setTimeout(function () { if (autoReload && document.visibilityState === 'visible') location.reload(); }, 60000);
 document.addEventListener('visibilitychange', function () {
-  if (document.visibilityState === 'visible' && performance.now() > 60000) location.reload();
+  if (autoReload && document.visibilityState === 'visible' && performance.now() > 60000) location.reload();
 });
 """
 
 
-def _page(title: str, tab: str, body: str) -> str:
+_ICONS = {
+    "overview": '<path d="M3 13h8V3H3zM13 21h8V11h-8zM3 21h8v-6H3zM13 3v6h8V3z"/>',
+    "trades": '<path d="M4 6h16M4 12h16M4 18h10"/>',
+    "chart": '<path d="M3 3v18h18"/><path d="M7 15l4-5 3 3 5-7"/>',
+    "wallet": '<path d="M3 7a2 2 0 0 1 2-2h13v4"/><path d="M3 7v11a2 2 0 0 0 2 2h15V9H5a2 2 0 0 1-2-2z"/><circle cx="16" cy="14.5" r="1.3"/>',
+}
+MENU = (("overview", "/", "Übersicht"), ("trades", "/trades", "Trades"), ("chart", "/chart", "Chart"), ("wallet", "/wallet", "Wallet"))
+
+
+def _page(title: str, tab: str, body: str, script: str = "", reload: bool = True) -> str:
     now = datetime.now(timezone.utc).strftime("%d.%m.%Y %H:%M UTC")
-    tabs = "".join(
-        f'<a href="{href}" class="{"on" if key == tab else ""}">{label}</a>'
-        for key, href, label in (("overview", "/", "Übersicht"), ("trades", "/trades", "Trades"), ("chart", "/chart", "Chart"))
+    menu = "".join(
+        f'<a href="{href}" class="{"on" if key == tab else ""}"><svg viewBox="0 0 24 24" aria-hidden="true">{_ICONS[key]}</svg>'
+        f'<span>{label}</span></a>'
+        for key, href, label in MENU
     )
     return f"""<!doctype html>
 <html lang="de"><head><meta charset="utf-8">
@@ -265,14 +305,15 @@ document.querySelector('meta[name=theme-color]').content = '#070b14'; }} }} catc
 <title>{html.escape(title)}</title>
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-<style>{_CSS}</style></head><body><main>
+<style>{_CSS}</style></head><body{"" if reload else " data-noreload"}>
+<nav class="menu" aria-label="Menü"><div class="menu-brand"><div class="logo">{_LOGO}</div><b>{html.escape(title)}</b></div>{menu}</nav>
+<main>
 <header class="top"><div class="logo">{_LOGO}</div><div><h1>{html.escape(title)}</h1>
 <div class="sub"><span class="pulse"></span>Live · Übungskonto · Stand {now}</div></div><!--bots-->
 <button class="theme" type="button" onclick="toggleTheme()" aria-label="Hell oder dunkel" title="Hell / Dunkel">{_SUN}{_MOON}</button><!--logout--></header>
-<nav class="tabs">{tabs}</nav>
 {body}
-<footer>Aktualisiert sich jede Minute von selbst</footer>
-</main><script>{_JS}</script></body></html>"""
+<footer>{"Aktualisiert sich jede Minute von selbst" if reload else "Daten kommen direkt von der Hyperliquid-Blockchain"}</footer>
+</main><script>{_JS}{script}</script></body></html>"""
 
 
 PERIODS = {
@@ -897,6 +938,172 @@ def trades_csv(trades: list[dict]) -> str:
     return "\n".join(lines) + "\n"
 
 
+# ---------------------------------------------------------------- Hyperliquid-Wallet
+# Der Server kennt keinen Schlüssel. Er reicht nur Leseanfragen und von der Wallet
+# des Nutzers unterschriebene Auszahlungen an Hyperliquid weiter.
+HL_API = {"testnet": "https://api.hyperliquid-testnet.xyz", "mainnet": "https://api.hyperliquid.xyz"}
+HL_APP = {"testnet": "https://app.hyperliquid-testnet.xyz", "mainnet": "https://app.hyperliquid.xyz"}
+HL_INFO_TYPES = ("clearinghouseState", "userNonFundingLedgerUpdates")
+
+
+def hl_network() -> str:
+    """Netz aus HL_NETWORK (testnet oder mainnet), Standard: Testnetz mit Spielgeld."""
+    net = (os.getenv("HL_NETWORK") or "testnet").strip().lower()
+    return net if net in HL_API else "testnet"
+
+
+def _is_address(v) -> bool:
+    return isinstance(v, str) and len(v) == 42 and v.startswith("0x") and all(c in "0123456789abcdefABCDEF" for c in v[2:])
+
+
+def hl_info_allowed(body) -> bool:
+    """Nur Lesen, und nur die Abfragen, die die Wallet-Seite braucht."""
+    return isinstance(body, dict) and body.get("type") in HL_INFO_TYPES and _is_address(body.get("user")) \
+        and set(body) <= {"type", "user", "startTime"}
+
+
+def hl_exchange_allowed(body, network: str) -> bool:
+    """Nur Auszahlungen (withdraw3), die die eigene Wallet unterschrieben hat, und nur ins eingestellte Netz."""
+    if not isinstance(body, dict) or set(body) != {"action", "nonce", "signature"}:
+        return False
+    a, sig = body["action"], body["signature"]
+    return (isinstance(a, dict) and a.get("type") == "withdraw3"
+            and set(a) == {"type", "signatureChainId", "hyperliquidChain", "destination", "amount", "time"}
+            and a["hyperliquidChain"] == ("Mainnet" if network == "mainnet" else "Testnet")
+            and _is_address(a["destination"]) and isinstance(a["amount"], str) and a["time"] == body["nonce"]
+            and isinstance(sig, dict) and set(sig) == {"r", "s", "v"})
+
+
+def hl_post(path: str, payload: dict, network: str) -> tuple[int, bytes]:
+    import json
+    import urllib.error
+    import urllib.request
+
+    req = urllib.request.Request(HL_API[network] + path, data=json.dumps(payload).encode(),
+                                 headers={"Content-Type": "application/json"})
+    try:
+        with urllib.request.urlopen(req, timeout=15) as r:
+            return r.status, r.read()
+    except urllib.error.HTTPError as e:
+        return e.code, e.read()
+    except Exception as e:  # Netzwerkfehler
+        return 502, json.dumps({"error": str(e)}).encode()
+
+
+_WALLET_JS = r"""
+var NET = document.getElementById('wallet').dataset.net, BASE = location.pathname.replace(/wallet$/, '');
+var addr = null;
+function $(id) { return document.getElementById(id); }
+function money(v) { return Number(v).toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
+function signed(v) { v = Number(v); return (v > 0 ? '+' : '') + money(v); }
+function esc(t) { var d = document.createElement('div'); d.textContent = t; return d.innerHTML; }
+function msg(t, bad) { var m = $('w-msg'); m.textContent = t; m.className = 'w-msg ' + (bad ? 'down' : 'up'); }
+function api(path, body) {
+  return fetch(BASE + 'hl/' + path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+    .then(function (r) { return r.json().then(function (j) { if (!r.ok) throw new Error(j && (j.response || j.error) || r.status); return j; }); });
+}
+function show(a) {
+  addr = a; try { localStorage.setItem('hl_addr', a); } catch (e) {}
+  $('w-addr').textContent = a.slice(0, 6) + '…' + a.slice(-4); $('w-dest').value = a;
+  $('w-on').hidden = false; $('w-off').hidden = true; load();
+}
+function connect() {
+  if (!window.ethereum) { msg('Keine Wallet gefunden. Öffne das Dashboard im Browser der MetaMask-App oder installiere MetaMask/Rabby.', true); return; }
+  window.ethereum.request({ method: 'eth_requestAccounts' }).then(function (acc) { show(acc[0]); })
+    .catch(function (e) { msg('Verbinden abgebrochen: ' + (e.message || e), true); });
+}
+function disconnect() { addr = null; try { localStorage.removeItem('hl_addr'); } catch (e) {} $('w-on').hidden = true; $('w-off').hidden = false; }
+function load() {
+  if (!addr) return;
+  $('w-state').innerHTML = '<p class="muted">Lade Daten von Hyperliquid …</p>';
+  api('info', { type: 'clearinghouseState', user: addr }).then(function (s) {
+    var m = s.marginSummary || {}, pos = (s.assetPositions || []).map(function (p) { return p.position; });
+    var upnl = pos.reduce(function (t, p) { return t + Number(p.unrealizedPnl || 0); }, 0);
+    $('w-value').textContent = money(m.accountValue || 0) + ' $';
+    $('w-free').textContent = money(s.withdrawable || 0) + ' $';
+    $('w-upnl').textContent = signed(upnl) + ' $'; $('w-upnl').className = 'v ' + (upnl > 0 ? 'up' : upnl < 0 ? 'down' : '');
+    $('w-npos').textContent = pos.length;
+    $('w-max').textContent = money(Math.max(0, Number(s.withdrawable || 0) - 1));
+    $('w-state').innerHTML = pos.length ? '<table><tr><th>Coin</th><th>Seite</th><th>Jetzt</th><th>Größe</th><th>Einstieg</th></tr>' +
+      pos.map(function (p) { var sz = Number(p.szi), u = Number(p.unrealizedPnl);
+        return '<tr><td><b>' + esc(p.coin) + '</b></td><td class="' + (sz > 0 ? 'up' : 'down') + '">' + (sz > 0 ? 'Long' : 'Short') +
+          '</td><td class="' + (u > 0 ? 'up' : u < 0 ? 'down' : '') + '"><b>' + signed(u) + ' $</b></td><td>' + Math.abs(sz) +
+          '</td><td>' + money(p.entryPx) + '</td></tr>'; }).join('') + '</table>'
+      : '<p class="muted" style="margin:0">Keine offene Position auf Hyperliquid.</p>';
+  }).catch(function (e) { $('w-state').innerHTML = '<p class="down">Konnte Hyperliquid nicht erreichen: ' + esc(String(e.message || e)) + '</p>'; });
+  api('info', { type: 'userNonFundingLedgerUpdates', user: addr, startTime: 0 }).then(function (rows) {
+    rows = (rows || []).filter(function (r) { return r.delta && /deposit|withdraw/i.test(r.delta.type); }).reverse().slice(0, 30);
+    $('w-ledger').innerHTML = rows.length ? '<table><tr><th>Datum</th><th>Art</th><th>Betrag</th></tr>' + rows.map(function (r) {
+      var dep = /deposit/i.test(r.delta.type), d = new Date(r.time);
+      return '<tr><td>' + d.toLocaleDateString('de-DE') + ' ' + d.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' }) +
+        '</td><td class="' + (dep ? 'up' : 'down') + '">' + (dep ? 'Einzahlung' : 'Auszahlung') + '</td><td><b>' + (dep ? '+' : '−') +
+        money(Math.abs(Number(r.delta.usdc || 0))) + ' $</b></td></tr>'; }).join('') + '</table>'
+      : '<p class="muted" style="margin:0">Noch keine Ein- oder Auszahlungen.</p>';
+  }).catch(function () { $('w-ledger').innerHTML = '<p class="muted">Verlauf gerade nicht abrufbar.</p>'; });
+}
+function withdraw(ev) {
+  ev.preventDefault();
+  var amount = $('w-amount').value.replace(',', '.').trim(), dest = $('w-dest').value.trim();
+  if (!/^\d+(\.\d{1,6})?$/.test(amount) || Number(amount) <= 1) { msg('Bitte einen Betrag über 1 $ eingeben (1 $ Gebühr).', true); return; }
+  if (!/^0x[0-9a-fA-F]{40}$/.test(dest)) { msg('Die Zieladresse ist keine gültige Wallet-Adresse.', true); return; }
+  if (!confirm(amount + ' USDC von Hyperliquid (' + NET + ') auszahlen an\n' + dest + '\n\nGebühr etwa 1 USDC. Das Geld kommt auf Arbitrum an. Fortfahren?')) return;
+  var chain = NET === 'mainnet' ? 'Mainnet' : 'Testnet';
+  window.ethereum.request({ method: 'eth_chainId' }).then(function (cid) {
+    var time = Date.now(), msgData = { hyperliquidChain: chain, destination: dest, amount: amount, time: time };
+    var typed = { domain: { name: 'HyperliquidSignTransaction', version: '1', chainId: parseInt(cid, 16), verifyingContract: '0x0000000000000000000000000000000000000000' },
+      types: { EIP712Domain: [{ name: 'name', type: 'string' }, { name: 'version', type: 'string' }, { name: 'chainId', type: 'uint256' }, { name: 'verifyingContract', type: 'address' }],
+        'HyperliquidTransaction:Withdraw': [{ name: 'hyperliquidChain', type: 'string' }, { name: 'destination', type: 'string' }, { name: 'amount', type: 'string' }, { name: 'time', type: 'uint64' }] },
+      primaryType: 'HyperliquidTransaction:Withdraw', message: msgData };
+    msg('Bitte in deiner Wallet unterschreiben …');
+    return window.ethereum.request({ method: 'eth_signTypedData_v4', params: [addr, JSON.stringify(typed)] }).then(function (sig) {
+      var action = { type: 'withdraw3', signatureChainId: cid, hyperliquidChain: chain, destination: dest, amount: amount, time: time };
+      return api('exchange', { action: action, nonce: time, signature: { r: '0x' + sig.slice(2, 66), s: '0x' + sig.slice(66, 130), v: parseInt(sig.slice(130, 132), 16) } });
+    });
+  }).then(function (r) {
+    if (r && r.status === 'ok') { msg('Auszahlung gesendet. Sie kommt in etwa 3 bis 5 Minuten auf deiner Wallet an.'); $('w-amount').value = ''; setTimeout(load, 4000); }
+    else msg('Hyperliquid hat abgelehnt: ' + JSON.stringify(r && r.response || r), true);
+  }).catch(function (e) { msg('Nicht ausgezahlt: ' + (e.message || e), true); });
+}
+try { var saved = localStorage.getItem('hl_addr'); if (saved) show(saved); } catch (e) {}
+if (window.ethereum && window.ethereum.on) window.ethereum.on('accountsChanged', function (a) { if (a && a[0]) show(a[0]); else disconnect(); });
+"""
+
+
+def render_wallet(title: str, network: str | None = None) -> str:
+    net = network or hl_network()
+    app = HL_APP[net]
+    badge = ('<span class="live" style="background:linear-gradient(135deg,#f59e0b,#ef4444)">TESTNETZ · Spielgeld</span>'
+             if net == "testnet" else '<span class="live">ECHTGELD</span>')
+    fund = (f'<li>Spielgeld holst du dir im <a href="{app}/drip" target="_blank" rel="noopener">Hyperliquid-Testnetz (Faucet)</a> '
+            'mit derselben Wallet.</li>' if net == "testnet" else "")
+    body = f"""<section class="card" id="wallet" data-net="{net}"><h2>Hyperliquid-Wallet</h2>
+<p style="margin:0 0 12px">{badge} Dein Geld liegt auf <b>deiner</b> Wallet-Adresse auf der Hyperliquid-Blockchain.
+Nur du kannst auszahlen, der Bot kann nur handeln. Dein Schlüssel bleibt in deiner Wallet, der Server sieht ihn nie.</p>
+<div id="w-off"><button class="btn" type="button" onclick="connect()">Wallet verbinden</button>
+<p class="legend">Funktioniert mit MetaMask oder Rabby. Am iPhone das Dashboard im Browser der MetaMask-App öffnen.</p></div>
+<div id="w-on" hidden><p style="margin:0">Verbunden: <b class="mono" id="w-addr"></b> ·
+<a href="#" onclick="load();return false">Aktualisieren</a> · <a href="#" onclick="disconnect();return false">Trennen</a></p></div>
+<p id="w-msg" class="w-msg"></p></section>
+<section class="card kpis"><div class="kpi"><div class="v" id="w-value">–</div><div class="l">Guthaben auf Hyperliquid</div></div>
+<div class="kpi"><div class="v" id="w-free">–</div><div class="l">Frei zum Auszahlen</div></div>
+<div class="kpi"><div class="v" id="w-upnl">–</div><div class="l">Offene Positionen</div></div>
+<div class="kpi"><div class="v" id="w-npos">–</div><div class="l">Anzahl Positionen</div></div></section>
+<section class="card"><h2>Positionen auf Hyperliquid</h2><div id="w-state"><p class="muted" style="margin:0">Erst Wallet verbinden.</p></div></section>
+<section class="card"><h2>Auszahlen</h2><form onsubmit="withdraw(event)" class="w-form">
+<label>Betrag in USDC <span class="muted">(höchstens <span id="w-max">–</span>)</span><input id="w-amount" inputmode="decimal" placeholder="z. B. 100" autocomplete="off"></label>
+<label>An Wallet-Adresse<input id="w-dest" class="mono" spellcheck="false" autocomplete="off"></label>
+<button class="btn" type="submit">Auszahlen</button></form>
+<p class="legend">Du unterschreibst in deiner Wallet. Das Geld kommt als USDC auf Arbitrum an, nach etwa 3 bis 5 Minuten, Gebühr etwa 1 USDC.
+Für USDT auf BEP20 danach über eine Bridge zurücktauschen.</p></section>
+<section class="card"><h2>Einzahlen (BEP20 → Hyperliquid)</h2><ol class="steps">{fund}
+<li>USDT (BEP20) in deiner Wallet über eine Bridge in <b>USDC auf Arbitrum</b> tauschen. Start: BNB Chain, Ziel: Arbitrum, an deine eigene Adresse.</li>
+<li>Auf <a href="{app}" target="_blank" rel="noopener">Hyperliquid</a> mit derselben Wallet „Deposit“ wählen und die USDC einzahlen (mindestens 5 USDC).</li>
+<li>Nach etwa 1 Minute erscheint das Guthaben oben.</li></ol>
+<p class="legend">Der Bot kann nie ein- oder auszahlen. Das machst immer nur du mit deiner Wallet.</p></section>
+<section class="card"><h2>Ein- und Auszahlungen</h2><div id="w-ledger"><p class="muted" style="margin:0">Erst Wallet verbinden.</p></div></section>"""
+    return _page(title, "wallet", body, script=_WALLET_JS, reload=False)
+
+
 @dataclass
 class Bot:
     """Ein Konto im Dashboard. Der erste Bot liegt unter /, jeder weitere unter /<slug>/."""
@@ -913,7 +1120,7 @@ class Bot:
         return "" if first else f"/{self.slug}"
 
 
-PAGES = ("/", "/index.html", "/chart", "/trades", "/trades.csv")
+PAGES = ("/", "/index.html", "/chart", "/trades", "/trades.csv", "/wallet")
 
 
 def route(bots: list[Bot], path: str) -> tuple[Bot, str] | None:
@@ -953,6 +1160,8 @@ def page_for(bots: list[Bot], bot: Bot, path: str, query: dict) -> tuple[str, st
                 candles.close()
         elif path == "/trades":
             page = render_trades(account, bot.title, arg("coin"), arg("side"), arg("result"), arg("p"))
+        elif path == "/wallet":
+            page = render_wallet(bot.title)
         elif path == "/trades.csv":
             return (trades_csv(filter_trades(account.trades(), arg("coin"), arg("side"), arg("result"), arg("p"))),
                     "text/csv; charset=utf-8")
@@ -1044,7 +1253,10 @@ def serve(db_path: str | None = None, start_equity: float = 10_000.0, fee_pct: f
             self._send(200, page, content_type, csv)
 
         def do_POST(self):  # noqa: N802
-            if not password or urlparse(self.path).path != "/login":
+            path = urlparse(self.path).path
+            if path.endswith("/hl/info") or path.endswith("/hl/exchange"):
+                return self._hyperliquid(path.rsplit("/", 1)[1])
+            if not password or path != "/login":
                 self.send_response(404)
                 self.end_headers()
                 return
@@ -1057,6 +1269,23 @@ def serve(db_path: str | None = None, start_equity: float = 10_000.0, fee_pct: f
                                                 "Path=/; HttpOnly; Secure; SameSite=Lax")
             time.sleep(1)  # bremst Durchprobieren von Passwörtern
             self._send(401, login_page(title, error=True, next_url=next_url))
+
+        def _hyperliquid(self, kind: str):
+            import json
+
+            if password and not self._authorized():
+                return self._send(401, '{"error": "nicht angemeldet"}', "application/json")
+            length = int(self.headers.get("Content-Length") or 0)
+            try:
+                body = json.loads(self.rfile.read(min(length, 8192)) or b"null")
+            except ValueError:
+                body = None
+            net = hl_network()
+            ok = hl_info_allowed(body) if kind == "info" else hl_exchange_allowed(body, net)
+            if not ok:
+                return self._send(400, '{"error": "Anfrage nicht erlaubt"}', "application/json")
+            code, data = hl_post("/" + kind, body, net)
+            self._send(code, data.decode("utf-8", "replace"), "application/json")
 
         def _send(self, code: int, page: str, content_type: str = "text/html; charset=utf-8", csv: bool = False):
             body = page.encode("utf-8-sig" if csv else "utf-8")
