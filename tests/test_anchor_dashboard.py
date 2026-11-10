@@ -292,3 +292,35 @@ def test_login_logout_with_session_cookie(tmp_path):
 
 def test_no_logout_button_without_password():
     assert "/logout" not in render(PaperAccount(":memory:"))
+
+
+def test_menu_and_wallet_page():
+    from tradingbot.dashboard import render_wallet
+
+    page = render(PaperAccount(":memory:"))
+    assert '<nav class="menu"' in page and 'href="/wallet"' in page and "<body data-noreload>" not in page
+    w = render_wallet("Trading-Bot", "testnet")
+    assert 'data-net="testnet"' in w and "TESTNETZ" in w and "Wallet verbinden" in w and "<body data-noreload>" in w
+    assert '<a href="/wallet" class="on">' in w
+    assert "ECHTGELD" in render_wallet("Trading-Bot", "mainnet")
+
+
+def test_hyperliquid_proxy_only_allows_reads_and_signed_withdrawals(monkeypatch):
+    from tradingbot.dashboard import hl_exchange_allowed, hl_info_allowed, hl_network
+
+    a = "0x" + "ab" * 20
+    assert hl_info_allowed({"type": "clearinghouseState", "user": a})
+    assert hl_info_allowed({"type": "userNonFundingLedgerUpdates", "user": a, "startTime": 0})
+    assert not hl_info_allowed({"type": "clearinghouseState", "user": "kein"})
+    assert not hl_info_allowed({"type": "allMids"})
+    good = {"action": {"type": "withdraw3", "signatureChainId": "0xa4b1", "hyperliquidChain": "Testnet",
+                       "destination": a, "amount": "10", "time": 5}, "nonce": 5, "signature": {"r": "0x1", "s": "0x2", "v": 27}}
+    assert hl_exchange_allowed(good, "testnet")
+    assert not hl_exchange_allowed(good, "mainnet")  # falsches Netz
+    order = {**good, "action": {**good["action"], "type": "order"}}
+    assert not hl_exchange_allowed(order, "testnet")  # Orders oder andere Aktionen nie über das Dashboard
+    assert not hl_exchange_allowed({**good, "nonce": 6}, "testnet")
+    monkeypatch.delenv("HL_NETWORK", raising=False)
+    assert hl_network() == "testnet"
+    monkeypatch.setenv("HL_NETWORK", "Mainnet")
+    assert hl_network() == "mainnet"
