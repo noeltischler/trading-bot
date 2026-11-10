@@ -301,6 +301,7 @@ def test_menu_and_wallet_page():
 
     page = render(PaperAccount(":memory:"))
     assert '<nav class="menu"' in page and 'href="/wallet"' in page and "<body data-noreload>" not in page
+    assert "Wallet trennen" in page and "wallet_revokePermissions" in page
     w = render_wallet("Trading-Bot", "testnet")
     assert 'data-net="testnet"' in w and "TESTNETZ" in w and "Wallet verbinden" in w and "<body data-noreload>" in w
     assert '<a href="/wallet" class="on">' in w

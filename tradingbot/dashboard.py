@@ -163,6 +163,16 @@ nav.menu a.out:hover { color:var(--down) }
 .wchip.on .dot { display:block } .wchip.on svg { display:none }
 .wchip:active { transform:scale(.95) }
 .wchip .short { display:none }
+.wmenu { position:fixed; z-index:60; width:250px; max-width:calc(100vw - 16px); padding:12px; border-radius:16px; display:grid; gap:8px;
+  background:rgba(255,255,255,.97); -webkit-backdrop-filter:blur(18px) saturate(160%); backdrop-filter:blur(18px) saturate(160%);
+  outline:1px solid var(--line); outline-offset:-1px; box-shadow:0 18px 40px -12px rgba(15,23,42,.35); animation:pop .16s ease-out; font-size:13.5px }
+:root[data-theme="dark"] .wmenu { background:rgba(15,21,36,.97) }
+.wmenu .wm-addr { display:flex; align-items:center; gap:8px; font-weight:650 }
+.wmenu .dot { width:8px; height:8px; border-radius:50%; background:var(--up); box-shadow:0 0 0 3px rgba(16,185,129,.18) }
+.wmenu .wm-full { font-size:11.5px; color:var(--muted); word-break:break-all }
+.wmenu a, .wmenu button { display:block; text-align:center; padding:10px; border-radius:11px; font:inherit; font-weight:650; text-decoration:none; cursor:pointer }
+.wmenu a { color:var(--text); background:var(--hover) }
+.wmenu .wm-off { border:0; color:#fff; background:var(--down) }
 @media (max-width:560px) { .wchip { padding:0 11px; gap:6px } .wchip.on { font-size:12px } .wchip:not(.on) .long { display:none } .wchip:not(.on) .short { display:inline } }
 main { padding-bottom:100px }
 @media (min-width:1000px) {
@@ -292,10 +302,30 @@ function chipShow() {
   c.querySelector('.long').textContent = a ? a.slice(0, n) + '…' + a.slice(-4) : 'Wallet verbinden';
   c.title = a ? 'Verbunden: ' + a : 'Wallet verbinden';
 }
+function closeWmenu() { var m = document.getElementById('wmenu'); if (m) m.remove(); }
+function walletOff() {
+  closeWmenu(); try { localStorage.removeItem('hl_addr'); } catch (e) {}
+  if (window.ethereum) window.ethereum.request({ method: 'wallet_revokePermissions', params: [{ eth_accounts: {} }] }).catch(function () {});
+  if (typeof disconnect === 'function' && document.getElementById('wallet')) disconnect(); else chipShow();
+}
+function walletMenu(c, a) {
+  if (document.getElementById('wmenu')) { closeWmenu(); return; }
+  var link = document.querySelector('nav.menu a[href$="wallet"]'), m = document.createElement('div'), r = c.getBoundingClientRect();
+  m.id = 'wmenu'; m.className = 'wmenu';
+  m.innerHTML = '<div class="wm-addr"><span class="dot"></span><span>Verbunden</span></div><div class="mono wm-full"></div>' +
+    (document.getElementById('wallet') || !link ? '' : '<a href="' + link.href + '">Zur Wallet-Seite</a>') +
+    '<button type="button" class="wm-off" onclick="walletOff()">Wallet trennen</button>';
+  m.querySelector('.wm-full').textContent = a;
+  document.body.appendChild(m);
+  m.style.top = (r.bottom + 8) + 'px'; m.style.right = Math.max(8, window.innerWidth - r.right) + 'px';
+}
+document.addEventListener('click', function (e) { if (!e.target.closest('#wmenu, #wchip')) closeWmenu(); });
+window.addEventListener('scroll', closeWmenu, { passive: true });
 function walletChip() {
   var onWallet = !!document.getElementById('wallet'), link = document.querySelector('nav.menu a[href$="wallet"]');
-  if (onWallet && !hlAddr()) { connect(); return; }
-  if (hlAddr() || !window.ethereum) { if (!onWallet && link) location.href = link.href; return; }
+  if (hlAddr()) { walletMenu(document.getElementById('wchip'), hlAddr()); return; }
+  if (onWallet) { connect(); return; }
+  if (!window.ethereum) { if (link) location.href = link.href; return; }
   window.ethereum.request({ method: 'eth_requestAccounts' }).then(function (acc) {
     try { localStorage.setItem('hl_addr', acc[0]); } catch (e) {} chipShow();
   }).catch(function () {});
