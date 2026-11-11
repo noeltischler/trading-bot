@@ -163,6 +163,25 @@ nav.menu a.out:hover { color:var(--down) }
 .wchip.on .dot { display:block } .wchip.on svg { display:none }
 .wchip:active { transform:scale(.95) }
 .wchip .short { display:none }
+.wkpis { position:relative }
+.wbal { position:absolute; top:14px; right:14px; min-width:150px; padding:10px 12px; border-radius:14px; text-align:right;
+  background:linear-gradient(135deg,rgba(79,70,229,.10),rgba(6,182,212,.10)); outline:1px solid var(--line); outline-offset:-1px }
+.wbal .wb-l { font-size:10.5px; font-weight:700; letter-spacing:.06em; text-transform:uppercase; color:var(--muted) }
+.wbal .wb-v { font-size:17px; font-weight:750; margin:2px 0 4px; background:linear-gradient(90deg,var(--accent),var(--accent2));
+  -webkit-background-clip:text; background-clip:text; color:transparent }
+.wbal .wb-d { display:flex; gap:8px; justify-content:flex-end; font-size:10.5px; color:var(--muted) } .wbal .wb-d b { color:var(--text); font-weight:650 }
+@media (max-width:560px) { .wbal { position:static; grid-column:1 / -1; text-align:left; margin-top:-4px } .wbal .wb-d { justify-content:flex-start } }
+.seg { display:grid; grid-template-columns:1fr 1fr; gap:4px; padding:4px; border-radius:14px; background:var(--glass);
+  outline:1px solid var(--line); outline-offset:-1px; box-shadow:var(--shadow) }
+.seg button { font:inherit; font-size:15px; font-weight:650; padding:11px 10px; border:0; border-radius:10px; cursor:pointer;
+  color:var(--muted); background:transparent }
+.seg button small { font-size:11px; font-weight:600; opacity:.75; margin-left:3px }
+.seg button.on { color:#fff; background:linear-gradient(135deg,var(--accent),var(--accent2)); box-shadow:0 6px 16px -6px var(--glow) }
+.seg button:not(.on):hover { color:var(--text); background:var(--hover) }
+.seg-sm button { font-size:14px; padding:9px 10px }
+.w-sub { font-size:12px; font-weight:700; letter-spacing:.06em; text-transform:uppercase; color:var(--muted); margin:22px 0 8px;
+  padding-top:16px; border-top:1px solid var(--line) }
+.wmenu .wm-row { display:grid; grid-template-columns:1fr 1fr; gap:8px }
 .wmenu { position:fixed; z-index:60; width:250px; max-width:calc(100vw - 16px); padding:12px; border-radius:16px; display:grid; gap:8px;
   background:rgba(255,255,255,.97); -webkit-backdrop-filter:blur(18px) saturate(160%); backdrop-filter:blur(18px) saturate(160%);
   outline:1px solid var(--line); outline-offset:-1px; box-shadow:0 18px 40px -12px rgba(15,23,42,.35); animation:pop .16s ease-out; font-size:13.5px }
@@ -171,7 +190,7 @@ nav.menu a.out:hover { color:var(--down) }
 .wmenu .dot { width:8px; height:8px; border-radius:50%; background:var(--up); box-shadow:0 0 0 3px rgba(16,185,129,.18) }
 .wmenu .wm-full { font-size:11.5px; color:var(--muted); word-break:break-all }
 .wmenu a, .wmenu button { display:block; text-align:center; padding:10px; border-radius:11px; font:inherit; font-weight:650; text-decoration:none; cursor:pointer }
-.wmenu a { color:var(--text); background:var(--hover) }
+.wmenu a, .wmenu .wm-ref { color:var(--text); background:var(--hover); border:0 }
 .wmenu .wm-off { border:0; color:#fff; background:var(--down) }
 @media (max-width:560px) { .wchip { padding:0 11px; gap:6px } .wchip.on { font-size:12px } .wchip:not(.on) .long { display:none } .wchip:not(.on) .short { display:inline } }
 main { padding-bottom:100px }
@@ -303,6 +322,9 @@ function chipShow() {
   c.title = a ? 'Verbunden: ' + a : 'Wallet verbinden';
 }
 function closeWmenu() { var m = document.getElementById('wmenu'); if (m) m.remove(); }
+function walletRefresh() {
+  closeWmenu(); if (typeof load === 'function' && document.getElementById('wallet')) load(); else location.reload();
+}
 function walletOff() {
   closeWmenu(); try { localStorage.removeItem('hl_addr'); } catch (e) {}
   if (window.ethereum) window.ethereum.request({ method: 'wallet_revokePermissions', params: [{ eth_accounts: {} }] }).catch(function () {});
@@ -314,7 +336,8 @@ function walletMenu(c, a) {
   m.id = 'wmenu'; m.className = 'wmenu';
   m.innerHTML = '<div class="wm-addr"><span class="dot"></span><span>Verbunden</span></div><div class="mono wm-full"></div>' +
     (document.getElementById('wallet') || !link ? '' : '<a href="' + link.href + '">Zur Wallet-Seite</a>') +
-    '<button type="button" class="wm-off" onclick="walletOff()">Wallet trennen</button>';
+    '<div class="wm-row"><button type="button" class="wm-ref" onclick="walletRefresh()">Aktualisieren</button>' +
+    '<button type="button" class="wm-off" onclick="walletOff()">Trennen</button></div>';
   m.querySelector('.wm-full').textContent = a;
   document.body.appendChild(m);
   m.style.top = (r.bottom + 8) + 'px'; m.style.right = Math.max(8, window.innerWidth - r.right) + 'px';
@@ -1188,34 +1211,28 @@ function api(path, body) {
 }
 function show(a) {
   addr = a; try { localStorage.setItem('hl_addr', a); } catch (e) {}
-  $('w-addr').textContent = a.slice(0, 6) + '…' + a.slice(-4); $('w-dest').value = a;
-  $('w-on').hidden = false; $('w-off').hidden = true; chipShow(); load();
+  $('w-off').hidden = true; chipShow(); load();
 }
 function connect() {
   if (!window.ethereum) { msg('Keine Wallet gefunden. Öffne das Dashboard im Browser der MetaMask-App oder installiere MetaMask/Rabby.', true); return; }
   window.ethereum.request({ method: 'eth_requestAccounts' }).then(function (acc) { show(acc[0]); })
     .catch(function (e) { msg('Verbinden abgebrochen: ' + (e.message || e), true); });
 }
-function disconnect() { if ($('w-dep-box')) { $('w-dep-box').hidden = true; $('w-dep-off').hidden = false; } addr = null; try { localStorage.removeItem('hl_addr'); } catch (e) {} $('w-on').hidden = true; $('w-off').hidden = false; chipShow(); }
-function copyAddr() {
-  var t = addr || ''; (navigator.clipboard ? navigator.clipboard.writeText(t) : Promise.reject()).then(function () {
-    $('w-copy').textContent = 'Kopiert ✓'; setTimeout(function () { $('w-copy').textContent = 'Adresse kopieren'; }, 2000);
-  }).catch(function () { window.prompt('Adresse kopieren:', t); });
-}
+function disconnect() { addr = null; try { localStorage.removeItem('hl_addr'); } catch (e) {} $('w-off').hidden = false; chipShow(); }
 function loadChain() {
   ['bsc_usdt', 'bsc_usdc', 'arb_usdc', 'chain_sum'].forEach(function (k) { $('w-' + k).textContent = '…'; });
   api('balances', { user: addr }).then(function (b) {
     var sum = 0, any = false;
     ['bsc_usdt', 'bsc_usdc', 'arb_usdc'].forEach(function (k) {
-      if (b[k] === null || b[k] === undefined) { $('w-' + k).textContent = 'nicht abrufbar'; return; }
-      sum += Number(b[k]); any = true; $('w-' + k).textContent = money(b[k]) + ' $';
+      if (b[k] === null || b[k] === undefined) { $('w-' + k).textContent = '?'; return; }
+      sum += Number(b[k]); any = true; $('w-' + k).textContent = money(b[k]);
     });
     $('w-chain_sum').textContent = any ? money(sum) + ' $' : '–';
   }).catch(function () { $('w-chain_sum').textContent = 'nicht abrufbar'; });
 }
 function load() {
   if (!addr) return;
-  $('w-dep').textContent = addr; $('w-dep-box').hidden = false; $('w-dep-off').hidden = true; loadChain();
+  loadChain();
   $('w-state').innerHTML = '<p class="muted">Lade Daten von Hyperliquid …</p>';
   api('info', { type: 'clearinghouseState', user: addr }).then(function (s) {
     var m = s.marginSummary || {}, pos = (s.assetPositions || []).map(function (p) { return p.position; });
@@ -1224,7 +1241,6 @@ function load() {
     $('w-free').textContent = money(s.withdrawable || 0) + ' $';
     $('w-upnl').textContent = signed(upnl) + ' $'; $('w-upnl').className = 'v ' + (upnl > 0 ? 'up' : upnl < 0 ? 'down' : '');
     $('w-npos').textContent = pos.length;
-    $('w-max').textContent = money(Math.max(0, Number(s.withdrawable || 0) - 1));
     $('w-state').innerHTML = pos.length ? '<table><tr><th>Coin</th><th>Seite</th><th>Jetzt</th><th>Größe</th><th>Einstieg</th></tr>' +
       pos.map(function (p) { var sz = Number(p.szi), u = Number(p.unrealizedPnl);
         return '<tr><td><b>' + esc(p.coin) + '</b></td><td class="' + (sz > 0 ? 'up' : 'down') + '">' + (sz > 0 ? 'Long' : 'Short') +
@@ -1242,36 +1258,18 @@ function load() {
       : '<p class="muted" style="margin:0">Noch keine Ein- oder Auszahlungen.</p>';
   }).catch(function () { $('w-ledger').innerHTML = '<p class="muted">Verlauf gerade nicht abrufbar.</p>'; });
 }
-function withdraw(ev) {
-  ev.preventDefault();
-  var amount = $('w-amount').value.replace(',', '.').trim(), dest = $('w-dest').value.trim();
-  if (!/^\d+(\.\d{1,6})?$/.test(amount) || Number(amount) <= 1) { msg('Bitte einen Betrag über 1 $ eingeben (1 $ Gebühr).', true); return; }
-  if (!/^0x[0-9a-fA-F]{40}$/.test(dest)) { msg('Die Zieladresse ist keine gültige Wallet-Adresse.', true); return; }
-  if (!confirm(amount + ' USDC von Hyperliquid (' + NET + ') auszahlen an\n' + dest + '\n\nGebühr etwa 1 USDC. Das Geld kommt auf Arbitrum an. Fortfahren?')) return;
-  var chain = NET === 'mainnet' ? 'Mainnet' : 'Testnet';
-  window.ethereum.request({ method: 'eth_chainId' }).then(function (cid) {
-    var time = Date.now(), msgData = { hyperliquidChain: chain, destination: dest, amount: amount, time: time };
-    var typed = { domain: { name: 'HyperliquidSignTransaction', version: '1', chainId: parseInt(cid, 16), verifyingContract: '0x0000000000000000000000000000000000000000' },
-      types: { EIP712Domain: [{ name: 'name', type: 'string' }, { name: 'version', type: 'string' }, { name: 'chainId', type: 'uint256' }, { name: 'verifyingContract', type: 'address' }],
-        'HyperliquidTransaction:Withdraw': [{ name: 'hyperliquidChain', type: 'string' }, { name: 'destination', type: 'string' }, { name: 'amount', type: 'string' }, { name: 'time', type: 'uint64' }] },
-      primaryType: 'HyperliquidTransaction:Withdraw', message: msgData };
-    msg('Bitte in deiner Wallet unterschreiben …');
-    return window.ethereum.request({ method: 'eth_signTypedData_v4', params: [addr, JSON.stringify(typed)] }).then(function (sig) {
-      var action = { type: 'withdraw3', signatureChainId: cid, hyperliquidChain: chain, destination: dest, amount: amount, time: time };
-      return api('exchange', { action: action, nonce: time, signature: { r: '0x' + sig.slice(2, 66), s: '0x' + sig.slice(66, 130), v: parseInt(sig.slice(130, 132), 16) } });
-    });
-  }).then(function (r) {
-    if (r && r.status === 'ok') { msg('Auszahlung gesendet. Sie kommt in etwa 3 bis 5 Minuten auf deiner Wallet an.'); $('w-amount').value = ''; setTimeout(load, 4000); }
-    else msg('Hyperliquid hat abgelehnt: ' + JSON.stringify(r && r.response || r), true);
-  }).catch(function (e) { msg('Nicht ausgezahlt: ' + (e.message || e), true); });
-}
 // ---- Ein- und Auszahlen per Klick über Relay ----
-var rq = null;
+var rq = null, TOKENS = { bsc_usdt: 'USDT (BEP20)', bsc_usdc: 'USDC (BEP20)' };
+document.addEventListener('click', function (e) {
+  var b = e.target.closest('.seg button'); if (!b) return;
+  var seg = b.parentNode; seg.querySelectorAll('button').forEach(function (x) { x.classList.toggle('on', x === b); });
+  $(seg.dataset.for).value = b.dataset.v; relayLabels();
+});
 function rmsg(t, bad) { var m = $('r-msg'); m.textContent = t; m.className = 'w-msg ' + (bad ? 'down' : 'up'); }
 function sleep(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
 function relayKind() { return $('r-dir').value; }
 function relayLabels() {
-  var dep = relayKind() === 'deposit', tk = $('r-token').selectedOptions[0].textContent;
+  var dep = relayKind() === 'deposit', tk = TOKENS[$('r-token').value];
   $('r-from').textContent = dep ? tk + ' aus deiner Wallet (BNB Chain)' : 'USDC von Hyperliquid';
   $('r-to').textContent = dep ? 'USDC auf Hyperliquid' : tk + ' in deine Wallet (BNB Chain)';
   $('r-quote').hidden = true; $('r-go').hidden = true; rq = null;
@@ -1349,7 +1347,7 @@ async function relayItem(step, item, n, total) {
 async function relayGo() {
   if (!rq || !rq.steps) return;
   var kind = relayKind(), amt = $('r-amount').value, steps = rq.steps, items = [], reqId = null;
-  if (!confirm((kind === 'deposit' ? 'Einzahlen: ' : 'Auszahlen: ') + amt + ' ' + $('r-token').selectedOptions[0].textContent +
+  if (!confirm((kind === 'deposit' ? 'Einzahlen: ' : 'Auszahlen: ') + amt + ' ' + TOKENS[$('r-token').value] +
       '\nDu bekommst etwa ' + $('r-out').textContent + ' (Gebühren ' + $('r-fee').textContent + ').\n\nFortfahren?')) return;
   steps.forEach(function (st) { (st.items || []).forEach(function (it) { if (it.status !== 'complete') items.push([st, it]); if (st.requestId) reqId = st.requestId; }); });
   $('r-go').disabled = true;
@@ -1376,14 +1374,11 @@ def render_wallet(title: str, network: str | None = None) -> str:
     app = HL_APP[net]
     badge = ('<span class="live" style="background:linear-gradient(135deg,#f59e0b,#ef4444)">TESTNETZ · Spielgeld</span>'
              if net == "testnet" else '<span class="live">ECHTGELD</span>')
-    fund = (f'<li>Spielgeld holst du dir im <a href="{app}/drip" target="_blank" rel="noopener">Hyperliquid-Testnetz (Faucet)</a> '
-            'mit derselben Wallet.</li>' if net == "testnet" else "")
     if net == "mainnet":
-        relay = """<section class="card"><h2>Ein- und Auszahlen per Klick</h2><form onsubmit="relayQuote(event)" class="w-form">
-<label>Was möchtest du?<select id="r-dir" onchange="relayLabels()"><option value="deposit">Einzahlen auf Hyperliquid</option>
-<option value="withdraw">Auszahlen in meine Wallet</option></select></label>
-<label>Coin auf der BNB Chain<select id="r-token" onchange="relayLabels()"><option value="bsc_usdt">USDT (BEP20)</option>
-<option value="bsc_usdc">USDC (BEP20)</option></select></label>
+        relay = """<form onsubmit="relayQuote(event)" class="w-form">
+<input type="hidden" id="r-dir" value="deposit"><input type="hidden" id="r-token" value="bsc_usdt">
+<div class="seg" data-for="r-dir"><button type="button" class="on" data-v="deposit">Einzahlen</button><button type="button" data-v="withdraw">Auszahlen</button></div>
+<div class="seg seg-sm" data-for="r-token"><button type="button" class="on" data-v="bsc_usdt">USDT <small>BEP20</small></button><button type="button" data-v="bsc_usdc">USDC <small>BEP20</small></button></div>
 <label>Betrag <span class="muted">(mindestens 5)</span><input id="r-amount" inputmode="decimal" placeholder="z. B. 20" autocomplete="off"
 oninput="document.getElementById('r-quote').hidden=true;document.getElementById('r-go').hidden=true"></label>
 <p class="legend" style="margin:0">Von: <b id="r-from">USDT (BEP20) aus deiner Wallet (BNB Chain)</b><br>Nach: <b id="r-to">USDC auf Hyperliquid</b></p>
@@ -1394,49 +1389,26 @@ oninput="document.getElementById('r-quote').hidden=true;document.getElementById(
 <p><button class="btn" type="button" id="r-go" hidden onclick="relayGo()">Jetzt ausführen</button></p>
 <p id="r-msg" class="w-msg"></p>
 <p class="legend">Läuft über die Bridge Relay. Du bestätigst nur in deiner Wallet: Einzahlen braucht eine Freigabe (nur beim ersten Mal)
-und eine Überweisung, dafür etwas BNB für die Gebühr. Auszahlen braucht zwei Unterschriften und kein BNB. Erst mit kleinem Betrag testen.</p></section>"""
+und eine Überweisung, dafür etwas BNB für die Gebühr. Auszahlen braucht zwei Unterschriften und kein BNB.</p>"""
     else:
-        relay = """<section class="card"><h2>Ein- und Auszahlen per Klick</h2><p class="muted" style="margin:0">Gibt es nur mit Echtgeld,
-weil die Bridge kein Testnetz kennt. Wird aktiv, sobald die Wallet-Seite auf Echtgeld umgestellt ist.</p></section>"""
+        relay = f"""<p class="muted" style="margin:0">Ein- und Auszahlen per Klick gibt es nur mit Echtgeld, weil die Bridge kein Testnetz kennt.
+Spielgeld holst du dir im <a href="{app}/drip" target="_blank" rel="noopener">Hyperliquid-Testnetz (Faucet)</a>.</p>"""
     body = f"""<section class="card" id="wallet" data-net="{net}"><h2>Hyperliquid-Wallet</h2>
-<p style="margin:0 0 12px">{badge} Dein Geld liegt auf <b>deiner</b> Wallet-Adresse auf der Hyperliquid-Blockchain.
-Nur du kannst auszahlen, der Bot kann nur handeln. Dein Schlüssel bleibt in deiner Wallet, der Server sieht ihn nie.
-Ein eigenes Konto bei Hyperliquid brauchst du nicht: deine Wallet-Adresse <b>ist</b> dein Hyperliquid-Konto.</p>
-<div id="w-off"><button class="btn" type="button" onclick="connect()">Wallet verbinden</button>
+<p style="margin:0">{badge} Dein Geld liegt auf <b>deiner</b> Wallet-Adresse auf der Hyperliquid-Blockchain.
+Nur du kannst auszahlen, der Bot kann nur handeln. Dein Schlüssel bleibt in deiner Wallet, der Server sieht ihn nie.</p>
+<div id="w-off" style="margin-top:12px"><button class="btn" type="button" onclick="connect()">Wallet verbinden</button>
 <p class="legend">Funktioniert mit MetaMask oder Rabby. Am iPhone das Dashboard im Browser der MetaMask-App öffnen.</p></div>
-<div id="w-on" hidden><p style="margin:0">Verbunden: <b class="mono" id="w-addr"></b> ·
-<a href="#" onclick="load();return false">Aktualisieren</a> · <a href="#" onclick="disconnect();return false">Trennen</a></p></div>
 <p id="w-msg" class="w-msg"></p></section>
-<section class="card kpis"><div class="kpi"><div class="v" id="w-value">–</div><div class="l">Guthaben auf Hyperliquid</div></div>
+<section class="card kpis wkpis"><div class="kpi"><div class="v" id="w-value">–</div><div class="l">Guthaben auf Hyperliquid</div></div>
+<div class="wbal" title="USDT und USDC in deiner Wallet, direkt von der Blockchain"><div class="wb-l">In deiner Wallet</div>
+<div class="wb-v" id="w-chain_sum">–</div>
+<div class="wb-d"><span>USDT <b id="w-bsc_usdt">–</b></span><span>USDC <b id="w-bsc_usdc">–</b></span><span>Arb <b id="w-arb_usdc">–</b></span></div></div>
 <div class="kpi"><div class="v" id="w-free">–</div><div class="l">Frei zum Auszahlen</div></div>
 <div class="kpi"><div class="v" id="w-upnl">–</div><div class="l">Offene Positionen</div></div>
 <div class="kpi"><div class="v" id="w-npos">–</div><div class="l">Anzahl Positionen</div></div></section>
-<section class="card"><h2>Guthaben in deiner Wallet</h2>
-<div class="kpis" style="padding:0;box-shadow:none;background:none;outline:0"><div class="kpi"><div class="v" id="w-chain_sum">–</div><div class="l">USDT + USDC in deiner Wallet</div></div>
-<div class="kpi"><div class="v" id="w-bsc_usdt">–</div><div class="l">USDT · BNB Chain (BEP20)</div></div>
-<div class="kpi"><div class="v" id="w-bsc_usdc">–</div><div class="l">USDC · BNB Chain (BEP20)</div></div>
-<div class="kpi"><div class="v" id="w-arb_usdc">–</div><div class="l">USDC · Arbitrum</div></div></div>
-<p class="legend">Echtes Guthaben direkt von der Blockchain, nur angezeigt. Damit der Bot damit handeln kann, muss es auf Hyperliquid eingezahlt sein (siehe Einzahlen).</p></section>
-<section class="card"><h2>Einzahlungsadresse</h2><div id="w-dep-off"><p class="muted" style="margin:0">Erst Wallet verbinden.</p></div>
-<div id="w-dep-box" hidden><p style="margin:0 0 10px">Schick <b>USDT über das Netzwerk BEP20 (BNB Smart Chain)</b> an diese Adresse, zum Beispiel von einer Börse:</p>
-<p class="mono" id="w-dep" style="margin:0 0 12px;padding:12px 14px;border-radius:12px;background:var(--glass);outline:1px solid var(--line);outline-offset:-1px;word-break:break-all;font-size:14px"></p>
-<button class="btn" type="button" id="w-copy" onclick="copyAddr()">Adresse kopieren</button>
-<p class="legend">Das ist deine eigene Wallet-Adresse. Sie gilt auf BNB Chain und Arbitrum. Beim Senden immer das Netzwerk prüfen: falsches Netzwerk kann das Geld kosten.
-Danach erscheint es oben unter „Guthaben in deiner Wallet“. Zum Handeln dann wie unten beschrieben auf Hyperliquid einzahlen.</p></div></section>
 <section class="card"><h2>Positionen auf Hyperliquid</h2><div id="w-state"><p class="muted" style="margin:0">Erst Wallet verbinden.</p></div></section>
-{relay}
-<section class="card"><h2>Auszahlen nach Arbitrum (direkt)</h2><form onsubmit="withdraw(event)" class="w-form">
-<label>Betrag in USDC <span class="muted">(höchstens <span id="w-max">–</span>)</span><input id="w-amount" inputmode="decimal" placeholder="z. B. 100" autocomplete="off"></label>
-<label>An Wallet-Adresse<input id="w-dest" class="mono" spellcheck="false" autocomplete="off"></label>
-<button class="btn" type="submit">Auszahlen</button></form>
-<p class="legend">Du unterschreibst in deiner Wallet. Das Geld kommt als USDC auf Arbitrum an, nach etwa 3 bis 5 Minuten, Gebühr etwa 1 USDC.
-Für USDT auf BEP20 danach über eine Bridge zurücktauschen.</p></section>
-<section class="card"><h2>Von Hand einzahlen (BEP20 → Hyperliquid)</h2><ol class="steps">{fund}
-<li>USDT (BEP20) in deiner Wallet über eine Bridge in <b>USDC auf Arbitrum</b> tauschen. Start: BNB Chain, Ziel: Arbitrum, an deine eigene Adresse.</li>
-<li>Auf <a href="{app}" target="_blank" rel="noopener">Hyperliquid</a> mit derselben Wallet „Deposit“ wählen und die USDC einzahlen (mindestens 5 USDC).</li>
-<li>Nach etwa 1 Minute erscheint das Guthaben oben.</li></ol>
-<p class="legend">Der Bot kann nie ein- oder auszahlen. Das machst immer nur du mit deiner Wallet.</p></section>
-<section class="card"><h2>Ein- und Auszahlungen</h2><div id="w-ledger"><p class="muted" style="margin:0">Erst Wallet verbinden.</p></div></section>"""
+<section class="card"><h2>Ein- und Auszahlungen</h2>{relay}
+<h3 class="w-sub">Verlauf</h3><div id="w-ledger"><p class="muted" style="margin:0">Erst Wallet verbinden.</p></div></section>"""
     return _page(title, "wallet", body, script=_WALLET_JS, reload=False)
 
 
