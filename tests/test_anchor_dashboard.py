@@ -301,7 +301,7 @@ def test_menu_and_wallet_page():
 
     page = render(PaperAccount(":memory:"))
     assert '<nav class="menu"' in page and 'href="/wallet"' in page and "<body data-noreload>" not in page
-    assert "Wallet trennen" in page and "wallet_revokePermissions" in page
+    assert "walletOff()" in page and "walletRefresh()" in page and "wallet_revokePermissions" in page
     w = render_wallet("Trading-Bot", "testnet")
     assert 'data-net="testnet"' in w and "TESTNETZ" in w and "Wallet verbinden" in w and "<body data-noreload>" in w
     assert '<a href="/wallet" class="on">' in w
@@ -353,7 +353,7 @@ def test_chain_balances_reads_balanceof_only():
     except ValueError:
         pass
     w = render_wallet("Trading-Bot", "testnet")
-    assert "Einzahlungsadresse" in w and "Guthaben in deiner Wallet" in w and "BEP20" in w
+    assert "In deiner Wallet" in w and "w-chain_sum" in w and "Einzahlungsadresse" not in w and "w-dest" not in w and "Verlauf" in w
 
 
 def test_relay_requests_are_built_on_server_and_restricted(monkeypatch):
