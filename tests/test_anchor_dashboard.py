@@ -354,3 +354,44 @@ def test_chain_balances_reads_balanceof_only():
         pass
     w = render_wallet("Trading-Bot", "testnet")
     assert "Einzahlungsadresse" in w and "Guthaben in deiner Wallet" in w and "BEP20" in w
+
+
+def test_relay_requests_are_built_on_server_and_restricted(monkeypatch):
+    from tradingbot import dashboard as d
+
+    user = "0x" + "cd" * 20
+    calls = []
+
+    def fake(method, path, payload=None):
+        calls.append((method, path, payload))
+        return 200, b"{}"
+
+    monkeypatch.setenv("HL_NETWORK", "testnet")
+    assert d.relay_request("quote", {"user": user, "kind": "deposit", "token": "bsc_usdt", "amount": "20"}, fake)[0] == 400
+    monkeypatch.setenv("HL_NETWORK", "mainnet")
+    monkeypatch.delenv("RELAY_API_KEY", raising=False)
+    assert d.relay_request("quote", {"user": user, "kind": "deposit", "token": "bsc_usdt", "amount": "20"}, fake)[0] == 503
+    monkeypatch.setenv("RELAY_API_KEY", "k")
+    assert d.relay_request("quote", {"user": user, "kind": "deposit", "token": "bsc_usdt", "amount": "20.5"}, fake)[0] == 200
+    q = calls[-1][2]
+    assert calls[-1][:2] == ("POST", "/quote/v2") and q["originChainId"] == 56 and q["destinationChainId"] == 1337
+    assert q["amount"] == str(205 * 10 ** 17) and q["recipient"] == user and q["originCurrency"].startswith("0x55d3")
+    d.relay_request("quote", {"user": user, "kind": "withdraw", "token": "bsc_usdc", "amount": "10"}, fake)
+    q = calls[-1][2]
+    assert q["originChainId"] == 1337 and q["amount"] == "1000000000" and q["protocolVersion"] == "v2" and q["destinationChainId"] == 56
+    bad = [{"user": user, "kind": "deposit", "token": "eth", "amount": "1"},
+           {"user": user, "kind": "deposit", "token": "bsc_usdt", "amount": "1e9"},
+           {"user": user, "kind": "deposit", "token": "bsc_usdt", "amount": "1", "recipient": "0x" + "11" * 20}]
+    assert all(d.relay_request("quote", b, fake)[0] == 400 for b in bad)
+    sig = "0x" + "ab" * 65
+    assert d.relay_request("post", {"endpoint": "/authorize", "body": {"a": 1}, "signature": sig}, fake)[0] == 200
+    assert calls[-1][1] == "/authorize?signature=" + sig
+    assert d.relay_request("post", {"endpoint": "/quote/v2", "body": {}, "signature": sig}, fake)[0] == 400
+    assert d.relay_request("status", {"requestId": "0xabc"}, fake)[0] == 200 and calls[-1][1].endswith("requestId=0xabc")
+    assert d.relay_request("status", {"requestId": "0xabc&x=1"}, fake)[0] == 400
+    send = {"type": "sendAsset", "signatureChainId": "0x38", "hyperliquidChain": "Mainnet", "destination": user,
+            "sourceDex": "", "destinationDex": "spot", "token": "USDC", "amount": "10", "fromSubAccount": "", "nonce": 5}
+    body = {"action": send, "nonce": 5, "signature": {"r": "0x1", "s": "0x2", "v": 27}}
+    assert d.hl_exchange_allowed(body, "mainnet") and not d.hl_exchange_allowed(body, "testnet")
+    assert not d.hl_exchange_allowed({**body, "nonce": 6}, "mainnet")
+    assert "relayQuote(event)" in d.render_wallet("T", "mainnet") and "relayQuote(event)" not in d.render_wallet("T", "testnet")

@@ -189,8 +189,8 @@ main { padding-bottom:100px }
   background:linear-gradient(135deg,var(--accent),var(--accent2)); box-shadow:0 6px 16px -6px var(--glow) }
 .btn:active { transform:scale(.97) }
 .w-form { display:grid; gap:12px; max-width:440px } .w-form label { display:grid; gap:6px; font-size:13.5px; font-weight:600 }
-.w-form input { font:inherit; font-size:16px; font-weight:500; padding:11px 13px; border-radius:12px; border:0; outline:1px solid var(--line);
-  background:var(--glass); color:var(--text); width:100% } .w-form input:focus { outline:2px solid var(--accent) }
+.w-form input, .w-form select { font:inherit; font-size:16px; font-weight:500; padding:11px 13px; border-radius:12px; border:0; outline:1px solid var(--line);
+  background:var(--glass); color:var(--text); width:100% } .w-form input:focus, .w-form select:focus { outline:2px solid var(--accent) }
 .w-msg { margin:10px 0 0; font-weight:600; font-size:13.5px } .w-msg:empty { display:none }
 ol.steps { margin:0; padding-left:20px; line-height:1.65 } ol.steps li { margin-bottom:6px }
 [hidden] { display:none !important }
@@ -1029,11 +1029,99 @@ def hl_exchange_allowed(body, network: str) -> bool:
     if not isinstance(body, dict) or set(body) != {"action", "nonce", "signature"}:
         return False
     a, sig = body["action"], body["signature"]
-    return (isinstance(a, dict) and a.get("type") == "withdraw3"
+    if not (isinstance(sig, dict) and set(sig) == {"r", "s", "v"} and isinstance(a, dict)):
+        return False
+    if a.get("type") == "sendAsset":  # Relay-Auszahlung: Übertrag an Relay, von der eigenen Wallet unterschrieben
+        return (set(a) == {"type", "signatureChainId", "hyperliquidChain", "destination", "sourceDex", "destinationDex",
+                           "token", "amount", "fromSubAccount", "nonce"}
+                and network == "mainnet" and a["hyperliquidChain"] == "Mainnet"
+                and _is_address(a["destination"]) and isinstance(a["amount"], str) and a["nonce"] == body["nonce"])
+    return (a.get("type") == "withdraw3"
             and set(a) == {"type", "signatureChainId", "hyperliquidChain", "destination", "amount", "time"}
             and a["hyperliquidChain"] == ("Mainnet" if network == "mainnet" else "Testnet")
             and _is_address(a["destination"]) and isinstance(a["amount"], str) and a["time"] == body["nonce"]
             and isinstance(sig, dict) and set(sig) == {"r", "s", "v"})
+
+
+# Ein- und Auszahlen per Klick über Relay (BNB Chain <-> Hyperliquid), nur Echtgeld
+RELAY_API = "https://api.relay.link"
+RELAY_HL_CHAIN, RELAY_BSC_CHAIN = 1337, 56
+RELAY_PERPS_USDC = "0x00000000000000000000000000000000"
+RELAY_TOKENS = {"bsc_usdt": ("0x55d398326f99059fF775485246999027B3197955", 18),
+                "bsc_usdc": ("0x8AC76a51cc950d9822D68b83fE1Ad97B32Cd580d", 18)}
+RELAY_POST_ENDPOINTS = ("/authorize", "/execute/permits")
+
+
+def _units(amount: str, decimals: int) -> str:
+    whole, _, frac = amount.partition(".")
+    if not whole.isdigit() or (frac and not frac.isdigit()) or len(frac) > 6:
+        raise ValueError("ungültiger Betrag")
+    return str(int(whole) * 10 ** decimals + int((frac or "0").ljust(decimals, "0")[:decimals]))
+
+
+def relay_quote_body(req) -> dict:
+    """Baut die Relay-Anfrage auf dem Server; der Browser bestimmt nur Richtung, Coin, Betrag und Adresse."""
+    if not isinstance(req, dict) or set(req) != {"user", "kind", "token", "amount"}:
+        raise ValueError("Anfrage nicht erlaubt")
+    user, kind, token, amount = req["user"], req["kind"], req["token"], str(req["amount"])
+    if not _is_address(user) or kind not in ("deposit", "withdraw") or token not in RELAY_TOKENS:
+        raise ValueError("Anfrage nicht erlaubt")
+    addr, dec = RELAY_TOKENS[token]
+    base = {"user": user, "recipient": user, "refundTo": user, "tradeType": "EXACT_INPUT"}
+    if kind == "deposit":
+        return {**base, "originChainId": RELAY_BSC_CHAIN, "originCurrency": addr, "amount": _units(amount, dec),
+                "destinationChainId": RELAY_HL_CHAIN, "destinationCurrency": RELAY_PERPS_USDC}
+    return {**base, "originChainId": RELAY_HL_CHAIN, "originCurrency": RELAY_PERPS_USDC, "amount": _units(amount, 8),
+            "destinationChainId": RELAY_BSC_CHAIN, "destinationCurrency": addr, "protocolVersion": "v2"}
+
+
+def relay_call(method: str, path: str, payload=None) -> tuple[int, bytes]:
+    import json
+    import urllib.error
+    import urllib.request
+
+    headers = {"Content-Type": "application/json"}
+    if os.getenv("RELAY_API_KEY"):
+        headers["x-api-key"] = os.getenv("RELAY_API_KEY").strip()
+    data = json.dumps(payload).encode() if payload is not None else None
+    req = urllib.request.Request(RELAY_API + path, data=data, headers=headers, method=method)
+    try:
+        with urllib.request.urlopen(req, timeout=20) as r:
+            return r.status, r.read()
+    except urllib.error.HTTPError as e:
+        return e.code, e.read()
+    except Exception as e:  # Netzwerkfehler
+        return 502, json.dumps({"message": str(e)}).encode()
+
+
+def relay_request(kind: str, body, call=relay_call) -> tuple[int, bytes]:
+    """quote, post (Unterschrift an Relay) oder status. Alles andere wird abgelehnt."""
+    import json
+    import re
+    from urllib.parse import quote
+
+    if hl_network() != "mainnet":
+        return 400, b'{"message": "Einzahlen per Klick gibt es nur mit Echtgeld (HL_NETWORK=mainnet)."}'
+    try:
+        if kind == "quote":
+            if not os.getenv("RELAY_API_KEY"):
+                return 503, json.dumps({"message": "Der Relay-Schlüssel fehlt noch auf dem Server."}).encode()
+            return call("POST", "/quote/v2", relay_quote_body(body))
+        if kind == "post":
+            ok = (isinstance(body, dict) and set(body) == {"endpoint", "body", "signature"}
+                  and body["endpoint"] in RELAY_POST_ENDPOINTS and isinstance(body["body"], dict)
+                  and isinstance(body["signature"], str) and re.fullmatch(r"0x[0-9a-fA-F]{130}", body["signature"]))
+            if not ok:
+                raise ValueError("Anfrage nicht erlaubt")
+            return call("POST", body["endpoint"] + "?signature=" + body["signature"], body["body"])
+        if kind == "status":
+            if not (isinstance(body, dict) and set(body) == {"requestId"}
+                    and re.fullmatch(r"0x[0-9a-fA-F]{1,128}", str(body["requestId"]))):
+                raise ValueError("Anfrage nicht erlaubt")
+            return call("GET", "/intents/status/v3?requestId=" + quote(body["requestId"]))
+    except ValueError as e:
+        return 400, json.dumps({"message": str(e)}).encode()
+    return 404, b'{"message": "unbekannt"}'
 
 
 def hl_post(path: str, payload: dict, network: str) -> tuple[int, bytes]:
@@ -1096,7 +1184,7 @@ function esc(t) { var d = document.createElement('div'); d.textContent = t; retu
 function msg(t, bad) { var m = $('w-msg'); m.textContent = t; m.className = 'w-msg ' + (bad ? 'down' : 'up'); }
 function api(path, body) {
   return fetch(BASE + 'hl/' + path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
-    .then(function (r) { return r.json().then(function (j) { if (!r.ok) throw new Error(j && (j.response || j.error) || r.status); return j; }); });
+    .then(function (r) { return r.json().then(function (j) { if (!r.ok) throw new Error(j && (j.response || j.error || j.message) || r.status); return j; }); });
 }
 function show(a) {
   addr = a; try { localStorage.setItem('hl_addr', a); } catch (e) {}
@@ -1177,6 +1265,107 @@ function withdraw(ev) {
     else msg('Hyperliquid hat abgelehnt: ' + JSON.stringify(r && r.response || r), true);
   }).catch(function (e) { msg('Nicht ausgezahlt: ' + (e.message || e), true); });
 }
+// ---- Ein- und Auszahlen per Klick über Relay ----
+var rq = null;
+function rmsg(t, bad) { var m = $('r-msg'); m.textContent = t; m.className = 'w-msg ' + (bad ? 'down' : 'up'); }
+function sleep(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
+function relayKind() { return $('r-dir').value; }
+function relayLabels() {
+  var dep = relayKind() === 'deposit', tk = $('r-token').selectedOptions[0].textContent;
+  $('r-from').textContent = dep ? tk + ' aus deiner Wallet (BNB Chain)' : 'USDC von Hyperliquid';
+  $('r-to').textContent = dep ? 'USDC auf Hyperliquid' : tk + ' in deine Wallet (BNB Chain)';
+  $('r-quote').hidden = true; $('r-go').hidden = true; rq = null;
+}
+async function relayQuote(ev) {
+  ev.preventDefault();
+  if (!addr) { rmsg('Erst Wallet verbinden.', true); return; }
+  var amount = $('r-amount').value.replace(',', '.').trim();
+  if (!/^\d+(\.\d{1,6})?$/.test(amount) || Number(amount) < 5) { rmsg('Bitte mindestens 5 eingeben.', true); return; }
+  rmsg('Hole Angebot …');
+  try {
+    rq = await api('relay/quote', { user: addr, kind: relayKind(), token: $('r-token').value, amount: amount });
+    var d = rq.details || {}, out = d.currencyOut || {}, f = rq.fees || {}, fee = 0;
+    ['gas', 'relayer', 'app'].forEach(function (k) { if (f[k] && f[k].amountUsd) fee += Number(f[k].amountUsd); });
+    $('r-out').textContent = (out.amountFormatted ? Number(out.amountFormatted).toLocaleString('de-DE', { maximumFractionDigits: 4 }) : '?') + ' ' + ((out.currency || {}).symbol || '');
+    $('r-fee').textContent = money(fee) + ' $';
+    $('r-time').textContent = d.timeEstimate ? 'etwa ' + Math.max(1, Math.round(d.timeEstimate / 60)) + ' Min.' : 'etwa 1 bis 5 Min.';
+    $('r-quote').hidden = false; $('r-go').hidden = false; rmsg('');
+  } catch (e) { rq = null; rmsg('Kein Angebot: ' + (e.message || e), true); }
+}
+function hexChain(id) { return '0x' + Number(id).toString(16); }
+async function ensureChain(id) {
+  var cur = parseInt(await window.ethereum.request({ method: 'eth_chainId' }), 16);
+  if (cur === Number(id)) return;
+  await window.ethereum.request({ method: 'wallet_switchEthereumChain', params: [{ chainId: hexChain(id) }] });
+}
+async function waitReceipt(hash) {
+  for (var i = 0; i < 120; i++) {
+    var r = await window.ethereum.request({ method: 'eth_getTransactionReceipt', params: [hash] });
+    if (r) { if (r.status === '0x0') throw new Error('Transaktion fehlgeschlagen'); return r; }
+    await sleep(2000);
+  }
+  throw new Error('Transaktion noch nicht bestätigt');
+}
+function splitSig(sig) { return { r: '0x' + sig.slice(2, 66), s: '0x' + sig.slice(66, 130), v: parseInt(sig.slice(130, 132), 16) }; }
+async function signTyped(domain, types, primaryType, message) {
+  var t = Object.assign({}, types);
+  if (!t.EIP712Domain) t.EIP712Domain = [{ name: 'name', type: 'string' }, { name: 'version', type: 'string' }, { name: 'chainId', type: 'uint256' }, { name: 'verifyingContract', type: 'address' }]
+    .filter(function (f) { return domain[f.name] !== undefined; });
+  return window.ethereum.request({ method: 'eth_signTypedData_v4', params: [addr, JSON.stringify({ domain: domain, types: t, primaryType: primaryType, message: message })] });
+}
+async function relayItem(step, item, n, total) {
+  var data = item.data || {}, label = 'Schritt ' + n + ' von ' + total + ': ';
+  var cid = parseInt(await window.ethereum.request({ method: 'eth_chainId' }), 16);
+  if (step.kind === 'signature') {
+    var sg = data.sign, post = data.post, body = Object.assign({}, post.body);
+    rmsg(label + 'bitte in der Wallet unterschreiben …');
+    var dom = Object.assign({}, sg.domain); if (dom.chainId !== undefined) dom.chainId = cid;
+    if (body.signatureChainId !== undefined) body.signatureChainId = typeof body.signatureChainId === 'number' ? cid : hexChain(cid);
+    var sig = sg.signatureKind === 'eip191'
+      ? await window.ethereum.request({ method: 'personal_sign', params: [sg.message, addr] })
+      : await signTyped(dom, sg.types, sg.primaryType, sg.value);
+    await api('relay/post', { endpoint: post.endpoint, body: body, signature: sig });
+    return;
+  }
+  if (data.action) {  // Hyperliquid-Übertrag an Relay
+    var p = Object.assign({}, data.action.parameters);
+    rmsg(label + 'bitte in der Wallet unterschreiben …');
+    var s2 = await signTyped({ name: 'HyperliquidSignTransaction', version: '1', chainId: cid, verifyingContract: '0x0000000000000000000000000000000000000000' },
+      data.eip712Types, data.eip712PrimaryType, p);
+    var action = Object.assign({ type: data.action.type, signatureChainId: hexChain(cid) }, p);
+    var r = await api('exchange', { action: action, nonce: data.nonce, signature: splitSig(s2) });
+    if (!r || r.status !== 'ok') throw new Error('Hyperliquid hat abgelehnt: ' + JSON.stringify(r && r.response || r));
+    return;
+  }
+  await ensureChain(data.chainId);
+  rmsg(label + 'bitte in der Wallet bestätigen …');
+  var tx = { from: addr, to: data.to, data: data.data || '0x', value: '0x0' };
+  if (data.value) tx.value = '0x' + BigInt(data.value).toString(16);
+  if (data.gas) tx.gas = '0x' + BigInt(data.gas).toString(16);
+  var hash = await window.ethereum.request({ method: 'eth_sendTransaction', params: [tx] });
+  rmsg(label + 'warte auf Bestätigung der Blockchain …');
+  await waitReceipt(hash);
+}
+async function relayGo() {
+  if (!rq || !rq.steps) return;
+  var kind = relayKind(), amt = $('r-amount').value, steps = rq.steps, items = [], reqId = null;
+  if (!confirm((kind === 'deposit' ? 'Einzahlen: ' : 'Auszahlen: ') + amt + ' ' + $('r-token').selectedOptions[0].textContent +
+      '\nDu bekommst etwa ' + $('r-out').textContent + ' (Gebühren ' + $('r-fee').textContent + ').\n\nFortfahren?')) return;
+  steps.forEach(function (st) { (st.items || []).forEach(function (it) { if (it.status !== 'complete') items.push([st, it]); if (st.requestId) reqId = st.requestId; }); });
+  $('r-go').disabled = true;
+  try {
+    for (var i = 0; i < items.length; i++) await relayItem(items[i][0], items[i][1], i + 1, items.length);
+    rmsg('Gesendet. Warte, bis das Geld ankommt …');
+    for (var k = 0; reqId && k < 150; k++) {
+      var st = await api('relay/status', { requestId: reqId }).catch(function () { return {}; });
+      if (st.status === 'success') { rmsg('Fertig! Das Geld ist angekommen.'); break; }
+      if (st.status === 'failure' || st.status === 'refund') { rmsg('Relay meldet: ' + st.status + '. Das Geld geht an deine Wallet zurück.', true); break; }
+      await sleep(4000);
+    }
+    rq = null; $('r-quote').hidden = true; $('r-go').hidden = true; setTimeout(load, 3000);
+  } catch (e) { rmsg('Abgebrochen: ' + (e.message || e), true); }
+  $('r-go').disabled = false;
+}
 try { var saved = localStorage.getItem('hl_addr'); if (saved) show(saved); } catch (e) {}
 if (window.ethereum && window.ethereum.on) window.ethereum.on('accountsChanged', function (a) { if (a && a[0]) show(a[0]); else disconnect(); });
 """
@@ -1189,6 +1378,26 @@ def render_wallet(title: str, network: str | None = None) -> str:
              if net == "testnet" else '<span class="live">ECHTGELD</span>')
     fund = (f'<li>Spielgeld holst du dir im <a href="{app}/drip" target="_blank" rel="noopener">Hyperliquid-Testnetz (Faucet)</a> '
             'mit derselben Wallet.</li>' if net == "testnet" else "")
+    if net == "mainnet":
+        relay = """<section class="card"><h2>Ein- und Auszahlen per Klick</h2><form onsubmit="relayQuote(event)" class="w-form">
+<label>Was möchtest du?<select id="r-dir" onchange="relayLabels()"><option value="deposit">Einzahlen auf Hyperliquid</option>
+<option value="withdraw">Auszahlen in meine Wallet</option></select></label>
+<label>Coin auf der BNB Chain<select id="r-token" onchange="relayLabels()"><option value="bsc_usdt">USDT (BEP20)</option>
+<option value="bsc_usdc">USDC (BEP20)</option></select></label>
+<label>Betrag <span class="muted">(mindestens 5)</span><input id="r-amount" inputmode="decimal" placeholder="z. B. 20" autocomplete="off"
+oninput="document.getElementById('r-quote').hidden=true;document.getElementById('r-go').hidden=true"></label>
+<p class="legend" style="margin:0">Von: <b id="r-from">USDT (BEP20) aus deiner Wallet (BNB Chain)</b><br>Nach: <b id="r-to">USDC auf Hyperliquid</b></p>
+<button class="btn" type="submit">Angebot holen</button></form>
+<div id="r-quote" hidden class="stats" style="max-width:440px;grid-template-columns:repeat(3,1fr)">
+<div><div class="v" id="r-out">–</div><div class="l">Du bekommst</div></div><div><div class="v" id="r-fee">–</div><div class="l">Gebühren</div></div>
+<div><div class="v" id="r-time">–</div><div class="l">Dauer</div></div></div>
+<p><button class="btn" type="button" id="r-go" hidden onclick="relayGo()">Jetzt ausführen</button></p>
+<p id="r-msg" class="w-msg"></p>
+<p class="legend">Läuft über die Bridge Relay. Du bestätigst nur in deiner Wallet: Einzahlen braucht eine Freigabe (nur beim ersten Mal)
+und eine Überweisung, dafür etwas BNB für die Gebühr. Auszahlen braucht zwei Unterschriften und kein BNB. Erst mit kleinem Betrag testen.</p></section>"""
+    else:
+        relay = """<section class="card"><h2>Ein- und Auszahlen per Klick</h2><p class="muted" style="margin:0">Gibt es nur mit Echtgeld,
+weil die Bridge kein Testnetz kennt. Wird aktiv, sobald die Wallet-Seite auf Echtgeld umgestellt ist.</p></section>"""
     body = f"""<section class="card" id="wallet" data-net="{net}"><h2>Hyperliquid-Wallet</h2>
 <p style="margin:0 0 12px">{badge} Dein Geld liegt auf <b>deiner</b> Wallet-Adresse auf der Hyperliquid-Blockchain.
 Nur du kannst auszahlen, der Bot kann nur handeln. Dein Schlüssel bleibt in deiner Wallet, der Server sieht ihn nie.
@@ -1215,13 +1424,14 @@ Ein eigenes Konto bei Hyperliquid brauchst du nicht: deine Wallet-Adresse <b>ist
 <p class="legend">Das ist deine eigene Wallet-Adresse. Sie gilt auf BNB Chain und Arbitrum. Beim Senden immer das Netzwerk prüfen: falsches Netzwerk kann das Geld kosten.
 Danach erscheint es oben unter „Guthaben in deiner Wallet“. Zum Handeln dann wie unten beschrieben auf Hyperliquid einzahlen.</p></div></section>
 <section class="card"><h2>Positionen auf Hyperliquid</h2><div id="w-state"><p class="muted" style="margin:0">Erst Wallet verbinden.</p></div></section>
-<section class="card"><h2>Auszahlen</h2><form onsubmit="withdraw(event)" class="w-form">
+{relay}
+<section class="card"><h2>Auszahlen nach Arbitrum (direkt)</h2><form onsubmit="withdraw(event)" class="w-form">
 <label>Betrag in USDC <span class="muted">(höchstens <span id="w-max">–</span>)</span><input id="w-amount" inputmode="decimal" placeholder="z. B. 100" autocomplete="off"></label>
 <label>An Wallet-Adresse<input id="w-dest" class="mono" spellcheck="false" autocomplete="off"></label>
 <button class="btn" type="submit">Auszahlen</button></form>
 <p class="legend">Du unterschreibst in deiner Wallet. Das Geld kommt als USDC auf Arbitrum an, nach etwa 3 bis 5 Minuten, Gebühr etwa 1 USDC.
 Für USDT auf BEP20 danach über eine Bridge zurücktauschen.</p></section>
-<section class="card"><h2>Einzahlen (BEP20 → Hyperliquid)</h2><ol class="steps">{fund}
+<section class="card"><h2>Von Hand einzahlen (BEP20 → Hyperliquid)</h2><ol class="steps">{fund}
 <li>USDT (BEP20) in deiner Wallet über eine Bridge in <b>USDC auf Arbitrum</b> tauschen. Start: BNB Chain, Ziel: Arbitrum, an deine eigene Adresse.</li>
 <li>Auf <a href="{app}" target="_blank" rel="noopener">Hyperliquid</a> mit derselben Wallet „Deposit“ wählen und die USDC einzahlen (mindestens 5 USDC).</li>
 <li>Nach etwa 1 Minute erscheint das Guthaben oben.</li></ol>
@@ -1380,6 +1590,8 @@ def serve(db_path: str | None = None, start_equity: float = 10_000.0, fee_pct: f
 
         def do_POST(self):  # noqa: N802
             path = urlparse(self.path).path
+            if "/hl/relay/" in path and path.rsplit("/", 1)[1] in ("quote", "post", "status"):
+                return self._hyperliquid("relay-" + path.rsplit("/", 1)[1])
             if path.endswith("/hl/info") or path.endswith("/hl/exchange") or path.endswith("/hl/balances"):
                 return self._hyperliquid(path.rsplit("/", 1)[1])
             if not password or path != "/login":
@@ -1406,6 +1618,9 @@ def serve(db_path: str | None = None, start_equity: float = 10_000.0, fee_pct: f
                 body = json.loads(self.rfile.read(min(length, 8192)) or b"null")
             except ValueError:
                 body = None
+            if kind.startswith("relay-"):
+                code, data = relay_request(kind[6:], body)
+                return self._send(code, data.decode("utf-8", "replace"), "application/json")
             if kind == "balances":
                 if not isinstance(body, dict) or set(body) != {"user"} or not _is_address(body.get("user")):
                     return self._send(400, '{"error": "Anfrage nicht erlaubt"}', "application/json")
