@@ -1233,7 +1233,6 @@ function loadChain() {
 function load() {
   if (!addr) return;
   loadChain();
-  $('w-state').innerHTML = '<p class="muted">Lade Daten von Hyperliquid …</p>';
   api('info', { type: 'clearinghouseState', user: addr }).then(function (s) {
     var m = s.marginSummary || {}, pos = (s.assetPositions || []).map(function (p) { return p.position; });
     var upnl = pos.reduce(function (t, p) { return t + Number(p.unrealizedPnl || 0); }, 0);
@@ -1241,13 +1240,7 @@ function load() {
     $('w-free').textContent = money(s.withdrawable || 0) + ' $';
     $('w-upnl').textContent = signed(upnl) + ' $'; $('w-upnl').className = 'v ' + (upnl > 0 ? 'up' : upnl < 0 ? 'down' : '');
     $('w-npos').textContent = pos.length;
-    $('w-state').innerHTML = pos.length ? '<table><tr><th>Coin</th><th>Seite</th><th>Jetzt</th><th>Größe</th><th>Einstieg</th></tr>' +
-      pos.map(function (p) { var sz = Number(p.szi), u = Number(p.unrealizedPnl);
-        return '<tr><td><b>' + esc(p.coin) + '</b></td><td class="' + (sz > 0 ? 'up' : 'down') + '">' + (sz > 0 ? 'Long' : 'Short') +
-          '</td><td class="' + (u > 0 ? 'up' : u < 0 ? 'down' : '') + '"><b>' + signed(u) + ' $</b></td><td>' + Math.abs(sz) +
-          '</td><td>' + money(p.entryPx) + '</td></tr>'; }).join('') + '</table>'
-      : '<p class="muted" style="margin:0">Keine offene Position auf Hyperliquid.</p>';
-  }).catch(function (e) { $('w-state').innerHTML = '<p class="down">Konnte Hyperliquid nicht erreichen: ' + esc(String(e.message || e)) + '</p>'; });
+  }).catch(function (e) { msg('Konnte Hyperliquid nicht erreichen: ' + (e.message || e), true); });
   api('info', { type: 'userNonFundingLedgerUpdates', user: addr, startTime: 0 }).then(function (rows) {
     rows = (rows || []).filter(function (r) { return r.delta && /deposit|withdraw/i.test(r.delta.type); }).reverse().slice(0, 30);
     $('w-ledger').innerHTML = rows.length ? '<table><tr><th>Datum</th><th>Art</th><th>Betrag</th></tr>' + rows.map(function (r) {
@@ -1406,7 +1399,6 @@ Nur du kannst auszahlen, der Bot kann nur handeln. Dein Schlüssel bleibt in dei
 <div class="kpi"><div class="v" id="w-free">–</div><div class="l">Frei zum Auszahlen</div></div>
 <div class="kpi"><div class="v" id="w-upnl">–</div><div class="l">Offene Positionen</div></div>
 <div class="kpi"><div class="v" id="w-npos">–</div><div class="l">Anzahl Positionen</div></div></section>
-<section class="card"><h2>Positionen auf Hyperliquid</h2><div id="w-state"><p class="muted" style="margin:0">Erst Wallet verbinden.</p></div></section>
 <section class="card"><h2>Ein- und Auszahlungen</h2>{relay}
 <h3 class="w-sub">Verlauf</h3><div id="w-ledger"><p class="muted" style="margin:0">Erst Wallet verbinden.</p></div></section>"""
     return _page(title, "wallet", body, script=_WALLET_JS, reload=False)
