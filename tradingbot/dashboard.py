@@ -171,6 +171,14 @@ nav.menu a.out:hover { color:var(--down) }
   -webkit-background-clip:text; background-clip:text; color:transparent }
 .wbal .wb-d { display:flex; gap:8px; justify-content:flex-end; font-size:10.5px; color:var(--muted) } .wbal .wb-d b { color:var(--text); font-weight:650 }
 @media (max-width:560px) { .wbal { position:static; grid-column:1 / -1; text-align:left; margin-top:-4px } .wbal .wb-d { justify-content:flex-start } }
+.seg { display:grid; grid-template-columns:1fr 1fr; gap:4px; padding:4px; border-radius:14px; background:var(--glass);
+  outline:1px solid var(--line); outline-offset:-1px; box-shadow:var(--shadow) }
+.seg button { font:inherit; font-size:15px; font-weight:650; padding:11px 10px; border:0; border-radius:10px; cursor:pointer;
+  color:var(--muted); background:transparent }
+.seg button small { font-size:11px; font-weight:600; opacity:.75; margin-left:3px }
+.seg button.on { color:#fff; background:linear-gradient(135deg,var(--accent),var(--accent2)); box-shadow:0 6px 16px -6px var(--glow) }
+.seg button:not(.on):hover { color:var(--text); background:var(--hover) }
+.seg-sm button { font-size:14px; padding:9px 10px }
 .w-sub { font-size:12px; font-weight:700; letter-spacing:.06em; text-transform:uppercase; color:var(--muted); margin:22px 0 8px;
   padding-top:16px; border-top:1px solid var(--line) }
 .wmenu .wm-row { display:grid; grid-template-columns:1fr 1fr; gap:8px }
@@ -1251,12 +1259,17 @@ function load() {
   }).catch(function () { $('w-ledger').innerHTML = '<p class="muted">Verlauf gerade nicht abrufbar.</p>'; });
 }
 // ---- Ein- und Auszahlen per Klick über Relay ----
-var rq = null;
+var rq = null, TOKENS = { bsc_usdt: 'USDT (BEP20)', bsc_usdc: 'USDC (BEP20)' };
+document.addEventListener('click', function (e) {
+  var b = e.target.closest('.seg button'); if (!b) return;
+  var seg = b.parentNode; seg.querySelectorAll('button').forEach(function (x) { x.classList.toggle('on', x === b); });
+  $(seg.dataset.for).value = b.dataset.v; relayLabels();
+});
 function rmsg(t, bad) { var m = $('r-msg'); m.textContent = t; m.className = 'w-msg ' + (bad ? 'down' : 'up'); }
 function sleep(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
 function relayKind() { return $('r-dir').value; }
 function relayLabels() {
-  var dep = relayKind() === 'deposit', tk = $('r-token').selectedOptions[0].textContent;
+  var dep = relayKind() === 'deposit', tk = TOKENS[$('r-token').value];
   $('r-from').textContent = dep ? tk + ' aus deiner Wallet (BNB Chain)' : 'USDC von Hyperliquid';
   $('r-to').textContent = dep ? 'USDC auf Hyperliquid' : tk + ' in deine Wallet (BNB Chain)';
   $('r-quote').hidden = true; $('r-go').hidden = true; rq = null;
@@ -1334,7 +1347,7 @@ async function relayItem(step, item, n, total) {
 async function relayGo() {
   if (!rq || !rq.steps) return;
   var kind = relayKind(), amt = $('r-amount').value, steps = rq.steps, items = [], reqId = null;
-  if (!confirm((kind === 'deposit' ? 'Einzahlen: ' : 'Auszahlen: ') + amt + ' ' + $('r-token').selectedOptions[0].textContent +
+  if (!confirm((kind === 'deposit' ? 'Einzahlen: ' : 'Auszahlen: ') + amt + ' ' + TOKENS[$('r-token').value] +
       '\nDu bekommst etwa ' + $('r-out').textContent + ' (Gebühren ' + $('r-fee').textContent + ').\n\nFortfahren?')) return;
   steps.forEach(function (st) { (st.items || []).forEach(function (it) { if (it.status !== 'complete') items.push([st, it]); if (st.requestId) reqId = st.requestId; }); });
   $('r-go').disabled = true;
@@ -1363,10 +1376,9 @@ def render_wallet(title: str, network: str | None = None) -> str:
              if net == "testnet" else '<span class="live">ECHTGELD</span>')
     if net == "mainnet":
         relay = """<form onsubmit="relayQuote(event)" class="w-form">
-<label>Was möchtest du?<select id="r-dir" onchange="relayLabels()"><option value="deposit">Einzahlen auf Hyperliquid</option>
-<option value="withdraw">Auszahlen in meine Wallet</option></select></label>
-<label>Coin auf der BNB Chain<select id="r-token" onchange="relayLabels()"><option value="bsc_usdt">USDT (BEP20)</option>
-<option value="bsc_usdc">USDC (BEP20)</option></select></label>
+<input type="hidden" id="r-dir" value="deposit"><input type="hidden" id="r-token" value="bsc_usdt">
+<div class="seg" data-for="r-dir"><button type="button" class="on" data-v="deposit">Einzahlen</button><button type="button" data-v="withdraw">Auszahlen</button></div>
+<div class="seg seg-sm" data-for="r-token"><button type="button" class="on" data-v="bsc_usdt">USDT <small>BEP20</small></button><button type="button" data-v="bsc_usdc">USDC <small>BEP20</small></button></div>
 <label>Betrag <span class="muted">(mindestens 5)</span><input id="r-amount" inputmode="decimal" placeholder="z. B. 20" autocomplete="off"
 oninput="document.getElementById('r-quote').hidden=true;document.getElementById('r-go').hidden=true"></label>
 <p class="legend" style="margin:0">Von: <b id="r-from">USDT (BEP20) aus deiner Wallet (BNB Chain)</b><br>Nach: <b id="r-to">USDC auf Hyperliquid</b></p>
