@@ -327,3 +327,30 @@ def test_hyperliquid_proxy_only_allows_reads_and_signed_withdrawals(monkeypatch)
     assert hl_network() == "testnet"
     monkeypatch.setenv("HL_NETWORK", "Mainnet")
     assert hl_network() == "mainnet"
+
+
+def test_chain_balances_reads_balanceof_only():
+    from tradingbot.dashboard import CHAIN_TOKENS, chain_balances, render_wallet
+
+    calls = []
+
+    def fake_post(url, payload):
+        calls.append((url, payload))
+        token = payload["params"][0]["to"]
+        if token.startswith("0x8AC7"):
+            raise OSError("down")
+        dec = 6 if token.startswith("0xaf88") else 18
+        return {"result": hex(1234500 * 10 ** (dec - 4))}
+
+    user = "0x" + "ab" * 20
+    out = chain_balances(user, post=fake_post)
+    assert out == {"bsc_usdt": 123.45, "bsc_usdc": None, "arb_usdc": 123.45}
+    assert len(calls) == len(CHAIN_TOKENS)
+    assert all(p["method"] == "eth_call" and p["params"][0]["data"] == "0x70a08231" + "00" * 12 + "ab" * 20 for _, p in calls)
+    try:
+        chain_balances("nope", post=fake_post)
+        assert False
+    except ValueError:
+        pass
+    w = render_wallet("Trading-Bot", "testnet")
+    assert "Einzahlungsadresse" in w and "Guthaben in deiner Wallet" in w and "BEP20" in w

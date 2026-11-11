@@ -1052,6 +1052,40 @@ def hl_post(path: str, payload: dict, network: str) -> tuple[int, bytes]:
         return 502, json.dumps({"error": str(e)}).encode()
 
 
+# Stablecoins in der eigenen Wallet (immer echte Netze, nur Lesen über öffentliche RPCs)
+CHAIN_RPC = {"bsc": "https://bsc-dataseed.bnbchain.org", "arbitrum": "https://arb1.arbitrum.io/rpc"}
+CHAIN_TOKENS = (
+    ("bsc_usdt", "bsc", "0x55d398326f99059fF775485246999027B3197955", 18),
+    ("bsc_usdc", "bsc", "0x8AC76a51cc950d9822D68b83fE1Ad97B32Cd580d", 18),
+    ("arb_usdc", "arbitrum", "0xaf88d065e77c8cC2239327C5EDb3A432268e5831", 6),
+)
+
+
+def _rpc_post(url: str, payload: dict):
+    import json
+    import urllib.request
+
+    req = urllib.request.Request(url, data=json.dumps(payload).encode(), headers={"Content-Type": "application/json"})
+    with urllib.request.urlopen(req, timeout=8) as r:
+        return json.loads(r.read())
+
+
+def chain_balances(user: str, post=_rpc_post) -> dict:
+    """USDT/USDC-Guthaben einer Adresse auf BNB Chain und Arbitrum (balanceOf, nur Lesen)."""
+    if not _is_address(user):
+        raise ValueError("keine gültige Adresse")
+    data = "0x70a08231" + user[2:].lower().rjust(64, "0")
+    out = {}
+    for key, chain, token, decimals in CHAIN_TOKENS:
+        try:
+            r = post(CHAIN_RPC[chain], {"jsonrpc": "2.0", "id": 1, "method": "eth_call",
+                                        "params": [{"to": token, "data": data}, "latest"]})
+            out[key] = int(r["result"], 16) / 10 ** decimals
+        except Exception:
+            out[key] = None
+    return out
+
+
 _WALLET_JS = r"""
 var NET = document.getElementById('wallet').dataset.net, BASE = location.pathname.replace(/wallet$/, '');
 var addr = null;
@@ -1074,9 +1108,26 @@ function connect() {
   window.ethereum.request({ method: 'eth_requestAccounts' }).then(function (acc) { show(acc[0]); })
     .catch(function (e) { msg('Verbinden abgebrochen: ' + (e.message || e), true); });
 }
-function disconnect() { addr = null; try { localStorage.removeItem('hl_addr'); } catch (e) {} $('w-on').hidden = true; $('w-off').hidden = false; chipShow(); }
+function disconnect() { if ($('w-dep-box')) { $('w-dep-box').hidden = true; $('w-dep-off').hidden = false; } addr = null; try { localStorage.removeItem('hl_addr'); } catch (e) {} $('w-on').hidden = true; $('w-off').hidden = false; chipShow(); }
+function copyAddr() {
+  var t = addr || ''; (navigator.clipboard ? navigator.clipboard.writeText(t) : Promise.reject()).then(function () {
+    $('w-copy').textContent = 'Kopiert ✓'; setTimeout(function () { $('w-copy').textContent = 'Adresse kopieren'; }, 2000);
+  }).catch(function () { window.prompt('Adresse kopieren:', t); });
+}
+function loadChain() {
+  ['bsc_usdt', 'bsc_usdc', 'arb_usdc', 'chain_sum'].forEach(function (k) { $('w-' + k).textContent = '…'; });
+  api('balances', { user: addr }).then(function (b) {
+    var sum = 0, any = false;
+    ['bsc_usdt', 'bsc_usdc', 'arb_usdc'].forEach(function (k) {
+      if (b[k] === null || b[k] === undefined) { $('w-' + k).textContent = 'nicht abrufbar'; return; }
+      sum += Number(b[k]); any = true; $('w-' + k).textContent = money(b[k]) + ' $';
+    });
+    $('w-chain_sum').textContent = any ? money(sum) + ' $' : '–';
+  }).catch(function () { $('w-chain_sum').textContent = 'nicht abrufbar'; });
+}
 function load() {
   if (!addr) return;
+  $('w-dep').textContent = addr; $('w-dep-box').hidden = false; $('w-dep-off').hidden = true; loadChain();
   $('w-state').innerHTML = '<p class="muted">Lade Daten von Hyperliquid …</p>';
   api('info', { type: 'clearinghouseState', user: addr }).then(function (s) {
     var m = s.marginSummary || {}, pos = (s.assetPositions || []).map(function (p) { return p.position; });
@@ -1140,7 +1191,8 @@ def render_wallet(title: str, network: str | None = None) -> str:
             'mit derselben Wallet.</li>' if net == "testnet" else "")
     body = f"""<section class="card" id="wallet" data-net="{net}"><h2>Hyperliquid-Wallet</h2>
 <p style="margin:0 0 12px">{badge} Dein Geld liegt auf <b>deiner</b> Wallet-Adresse auf der Hyperliquid-Blockchain.
-Nur du kannst auszahlen, der Bot kann nur handeln. Dein Schlüssel bleibt in deiner Wallet, der Server sieht ihn nie.</p>
+Nur du kannst auszahlen, der Bot kann nur handeln. Dein Schlüssel bleibt in deiner Wallet, der Server sieht ihn nie.
+Ein eigenes Konto bei Hyperliquid brauchst du nicht: deine Wallet-Adresse <b>ist</b> dein Hyperliquid-Konto.</p>
 <div id="w-off"><button class="btn" type="button" onclick="connect()">Wallet verbinden</button>
 <p class="legend">Funktioniert mit MetaMask oder Rabby. Am iPhone das Dashboard im Browser der MetaMask-App öffnen.</p></div>
 <div id="w-on" hidden><p style="margin:0">Verbunden: <b class="mono" id="w-addr"></b> ·
@@ -1150,6 +1202,18 @@ Nur du kannst auszahlen, der Bot kann nur handeln. Dein Schlüssel bleibt in dei
 <div class="kpi"><div class="v" id="w-free">–</div><div class="l">Frei zum Auszahlen</div></div>
 <div class="kpi"><div class="v" id="w-upnl">–</div><div class="l">Offene Positionen</div></div>
 <div class="kpi"><div class="v" id="w-npos">–</div><div class="l">Anzahl Positionen</div></div></section>
+<section class="card"><h2>Guthaben in deiner Wallet</h2>
+<div class="kpis" style="padding:0;box-shadow:none;background:none;outline:0"><div class="kpi"><div class="v" id="w-chain_sum">–</div><div class="l">USDT + USDC in deiner Wallet</div></div>
+<div class="kpi"><div class="v" id="w-bsc_usdt">–</div><div class="l">USDT · BNB Chain (BEP20)</div></div>
+<div class="kpi"><div class="v" id="w-bsc_usdc">–</div><div class="l">USDC · BNB Chain (BEP20)</div></div>
+<div class="kpi"><div class="v" id="w-arb_usdc">–</div><div class="l">USDC · Arbitrum</div></div></div>
+<p class="legend">Echtes Guthaben direkt von der Blockchain, nur angezeigt. Damit der Bot damit handeln kann, muss es auf Hyperliquid eingezahlt sein (siehe Einzahlen).</p></section>
+<section class="card"><h2>Einzahlungsadresse</h2><div id="w-dep-off"><p class="muted" style="margin:0">Erst Wallet verbinden.</p></div>
+<div id="w-dep-box" hidden><p style="margin:0 0 10px">Schick <b>USDT über das Netzwerk BEP20 (BNB Smart Chain)</b> an diese Adresse, zum Beispiel von einer Börse:</p>
+<p class="mono" id="w-dep" style="margin:0 0 12px;padding:12px 14px;border-radius:12px;background:var(--glass);outline:1px solid var(--line);outline-offset:-1px;word-break:break-all;font-size:14px"></p>
+<button class="btn" type="button" id="w-copy" onclick="copyAddr()">Adresse kopieren</button>
+<p class="legend">Das ist deine eigene Wallet-Adresse. Sie gilt auf BNB Chain und Arbitrum. Beim Senden immer das Netzwerk prüfen: falsches Netzwerk kann das Geld kosten.
+Danach erscheint es oben unter „Guthaben in deiner Wallet“. Zum Handeln dann wie unten beschrieben auf Hyperliquid einzahlen.</p></div></section>
 <section class="card"><h2>Positionen auf Hyperliquid</h2><div id="w-state"><p class="muted" style="margin:0">Erst Wallet verbinden.</p></div></section>
 <section class="card"><h2>Auszahlen</h2><form onsubmit="withdraw(event)" class="w-form">
 <label>Betrag in USDC <span class="muted">(höchstens <span id="w-max">–</span>)</span><input id="w-amount" inputmode="decimal" placeholder="z. B. 100" autocomplete="off"></label>
@@ -1316,7 +1380,7 @@ def serve(db_path: str | None = None, start_equity: float = 10_000.0, fee_pct: f
 
         def do_POST(self):  # noqa: N802
             path = urlparse(self.path).path
-            if path.endswith("/hl/info") or path.endswith("/hl/exchange"):
+            if path.endswith("/hl/info") or path.endswith("/hl/exchange") or path.endswith("/hl/balances"):
                 return self._hyperliquid(path.rsplit("/", 1)[1])
             if not password or path != "/login":
                 self.send_response(404)
@@ -1342,6 +1406,10 @@ def serve(db_path: str | None = None, start_equity: float = 10_000.0, fee_pct: f
                 body = json.loads(self.rfile.read(min(length, 8192)) or b"null")
             except ValueError:
                 body = None
+            if kind == "balances":
+                if not isinstance(body, dict) or set(body) != {"user"} or not _is_address(body.get("user")):
+                    return self._send(400, '{"error": "Anfrage nicht erlaubt"}', "application/json")
+                return self._send(200, json.dumps(chain_balances(body["user"])), "application/json")
             net = hl_network()
             ok = hl_info_allowed(body) if kind == "info" else hl_exchange_allowed(body, net)
             if not ok:
