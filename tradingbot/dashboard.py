@@ -1318,12 +1318,16 @@ function load() {
     $('w-npos').textContent = pos.length;
   }).catch(function (e) { msg('Konnte Hyperliquid nicht erreichen: ' + (e.message || e), true); });
   api('info', { type: 'userNonFundingLedgerUpdates', user: addr, startTime: 0 }).then(function (rows) {
-    rows = (rows || []).filter(function (r) { return r.delta && /deposit|withdraw/i.test(r.delta.type); }).reverse().slice(0, 30);
+    // Relay bucht über Überweisungen (send/internalTransfer), nicht als deposit/withdraw
+    var me = addr.toLowerCase();
+    rows = (rows || []).filter(function (r) { return r.delta && /^(deposit|withdraw|send|internalTransfer|spotTransfer)$/.test(r.delta.type); }).reverse().slice(0, 30);
     $('w-ledger').innerHTML = rows.length ? '<table><tr><th>Datum</th><th>Art</th><th>Betrag</th></tr>' + rows.map(function (r) {
-      var dep = /deposit/i.test(r.delta.type), d = new Date(r.time);
+      var x = r.delta, d = new Date(r.time);
+      var dep = x.type === 'deposit' || (x.type !== 'withdraw' && String(x.destination || '').toLowerCase() === me);
+      var amt = Math.abs(Number(x.usdc || x.usdcValue || x.amount || 0));
       return '<tr><td>' + d.toLocaleDateString('de-DE') + ' ' + d.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' }) +
         '</td><td class="' + (dep ? 'up' : 'down') + '">' + (dep ? 'Einzahlung' : 'Auszahlung') + '</td><td><b>' + (dep ? '+' : '−') +
-        money(Math.abs(Number(r.delta.usdc || 0))) + ' $</b></td></tr>'; }).join('') + '</table>'
+        money(amt) + ' $</b></td></tr>'; }).join('') + '</table>'
       : '<p class="muted" style="margin:0">Noch keine Ein- oder Auszahlungen.</p>';
   }).catch(function () { $('w-ledger').innerHTML = '<p class="muted">Verlauf gerade nicht abrufbar.</p>'; });
 }
