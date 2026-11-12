@@ -323,7 +323,15 @@ function toggleTheme() {
 }
 function hlAddr() { try { return localStorage.getItem('hl_addr'); } catch (e) { return null; } }
 function chipShow() {
-  var c = document.getElementById('wchip'), a = hlAddr(); if (!c) return;
+  var c = document.getElementById('wchip'), a = hlAddr();
+  // Echtgeld-Ansicht zeigt Daten nur für die verbundene Wallet: Adresse als Cookie mitschicken
+  var ck = (document.cookie.match(/(?:^|; )hl_addr=([^;]*)/) || [])[1] || '';
+  if (ck !== (a || '').toLowerCase()) {
+    document.cookie = 'hl_addr=' + (a || '').toLowerCase() + '; Path=/; Max-Age=' + (a ? 31536000 : 0) + '; SameSite=Lax; Secure';
+    var once = null; try { once = sessionStorage.getItem('hl_rl'); sessionStorage.setItem('hl_rl', a || ''); } catch (e) {}
+    if (document.body.hasAttribute('data-live') && once !== (a || '')) location.reload();  // nur einmal, falls Cookies gesperrt
+  }
+  if (!c) return;
   c.classList.toggle('on', !!a);
   var n = window.innerWidth < 560 ? 4 : 6;
   c.querySelector('.long').textContent = a ? a.slice(0, n) + '…' + a.slice(-4) : 'Wallet verbinden';
@@ -686,7 +694,7 @@ def render(account: PaperAccount, title: str = "Trading-Bot", period: str | None
     pnls = open_pnls(account, positions)
     open_total = sum(v for v in pnls.values() if v is not None)
     balance = cash + open_total  # Kontostand inklusive offener Gewinne und Verluste
-    change = 100 * (balance / start - 1)
+    change = 100 * (balance / start - 1) if start else 0.0
     wins = sum(1 for t in trades if t["pnl"] > 0)
     win_rate = f"{100 * wins / len(trades):.0f} %" if trades else "–"
     anchors = account.anchors()[-5:] if hasattr(account, "anchors") else []
@@ -1116,23 +1124,29 @@ def live_request(kind: str, body, live_db: str, post=None) -> tuple[int, dict]:
             if not agent or not agent_approved(user, agent, hl.network(), post):
                 return 400, {"error": "Bitte zuerst den Bot freigeben (Schritt 1)."}
             old = acc.get_state("live:account")
-            if old and old.lower() != user.lower() and acc.positions():
-                return 400, {"error": "Es sind noch Positionen einer anderen Wallet offen."}
+            if old and old.lower() != user.lower() and (acc.positions() or acc.get_state("live:enabled") == "1"):
+                return 400, {"error": "Der Bot handelt gerade für eine andere Wallet."}
             acc.set_state("live:account", user)
             acc.set_state("live:enabled", "1")
-        elif kind == "stop":
+        elif kind in ("stop", "panic"):
+            account = acc.get_state("live:account")
+            if set(body) != {"user"} or not _is_address(body["user"]) or (account and account.lower() != body["user"].lower()):
+                return 403, {"error": "Nur die Wallet, für die der Bot handelt, kann ihn stoppen."}
             acc.set_state("live:enabled", "0")
-        elif kind == "panic":
-            acc.set_state("live:enabled", "0")
-            acc.set_state("live:panic", "1")
+            if kind == "panic":
+                acc.set_state("live:panic", "1")
         elif kind != "status":
             return 404, {"error": "unbekannt"}
-        trades = acc.trades()
+        account = acc.get_state("live:account")
+        user = body.get("user")
+        mine = bool(account) and isinstance(user, str) and user.lower() == account.lower()
+        trades = acc.trades() if mine else []
         return 200, {
-            "network": hl.network(), "agent": hl.agent_address(live_db), "account": acc.get_state("live:account"),
-            "enabled": acc.get_state("live:enabled") == "1", "panic": acc.get_state("live:panic") == "1",
+            "network": hl.network(), "agent": hl.agent_address(live_db), "mine": mine,
+            "busy": bool(account) and not mine and acc.get_state("live:enabled") == "1",
+            "enabled": mine and acc.get_state("live:enabled") == "1", "panic": acc.get_state("live:panic") == "1",
             "positions": [{"coin": c, "side": p.side, "entry": p.entry, "stop": p.stop, "qty": p.qty,
-                           "opened_at": p.opened_at, "strategy": p.strategy} for c, p in acc.positions().items()],
+                           "opened_at": p.opened_at, "strategy": p.strategy} for c, p in acc.positions().items()] if mine else [],
             "trades": [{k: t[k] for k in ("coin", "side", "entry", "exit", "pnl", "closed_at", "reason")} for t in trades[-10:][::-1]],
             "pnl": round(sum(t["pnl"] for t in trades), 2), "count": len(trades),
         }
@@ -1442,7 +1456,7 @@ var LV = null;
 function lmsg(t, bad) { var m = $('l-msg'); m.textContent = t; m.className = 'w-msg ' + (bad ? 'down' : 'up'); }
 function short(a) { return a ? a.slice(0, 6) + '…' + a.slice(-4) : ''; }
 function liveLoad() {
-  return Promise.all([api('live/status', {}), api('info', { type: 'extraAgents', user: addr }).catch(function () { return []; })])
+  return Promise.all([api('live/status', { user: addr }), api('info', { type: 'extraAgents', user: addr }).catch(function () { return []; })])
     .then(function (r) {
       LV = r[0];
       LV.approved = !!LV.agent && (r[1] || []).some(function (a) { return String(a.address).toLowerCase() === LV.agent.toLowerCase(); });
@@ -1450,8 +1464,7 @@ function liveLoad() {
     }).catch(function (e) { $('l-body').innerHTML = '<p class="muted" style="margin:0">Echtgeld-Status gerade nicht abrufbar.</p>'; });
 }
 function liveRender() {
-  var s = LV, other = s.account && addr && s.account.toLowerCase() !== addr.toLowerCase();
-  var on = s.enabled && !other;
+  var s = LV, other = s.busy, on = s.enabled;
   var h = '<div class="l-head"><span class="l-pill ' + (on ? 'on' : '') + '">' + (on ? 'Läuft' : 'Aus') + '</span>' +
     '<span class="muted">' + (on ? 'Der Bot handelt mit deinem Guthaben auf Hyperliquid, mit denselben Regeln wie das Übungskonto.'
       : 'Der Bot handelt nur auf dem Übungskonto.') + '</span></div>';
@@ -1460,8 +1473,8 @@ function liveRender() {
       : '<button class="btn btn-sm" type="button" onclick="liveApprove()">In der Wallet freigeben</button>') + '</li>';
   h += '<li class="' + (on ? 'done' : '') + '"><b>Echtgeld-Handel</b> · ' + (on
       ? '<button class="btn btn-sm btn-ghost" type="button" onclick="liveSwitch(\'stop\')">Ausschalten</button>'
-      : '<button class="btn btn-sm" type="button" onclick="liveSwitch(\'start\')"' + (s.approved ? '' : ' disabled') + '>Einschalten</button>') + '</li></ol>';
-  if (other) h += '<p class="down" style="margin:6px 0">Eingeschaltet für eine andere Wallet (' + esc(short(s.account)) + ').</p>';
+      : '<button class="btn btn-sm" type="button" onclick="liveSwitch(\'start\')"' + (s.approved && !other ? '' : ' disabled') + '>Einschalten</button>') + '</li></ol>';
+  if (other) h += '<p class="down" style="margin:6px 0">Der Bot handelt gerade für eine andere Wallet.</p>';
   var rows = s.positions.map(function (p) {
     return '<tr><td>' + esc(p.coin) + '</td><td class="' + (p.side > 0 ? 'up' : 'down') + '">' + (p.side > 0 ? 'Long' : 'Short') +
       '</td><td>' + money(p.entry) + '</td><td>' + money(p.stop) + '</td><td>' + money(p.entry * p.qty) + ' $</td></tr>'; }).join('');
@@ -1490,14 +1503,14 @@ async function liveApprove() {
 }
 function liveSwitch(kind) {
   if (kind === 'start' && !confirm('Echtgeld-Handel einschalten? Der Bot handelt dann mit deinem Guthaben auf Hyperliquid.')) return;
-  api('live/' + kind, kind === 'start' ? { user: addr } : {}).then(function (s) {
+  api('live/' + kind, { user: addr }).then(function (s) {
     lmsg(kind === 'start' ? 'Eingeschaltet. Der Bot prüft alle 30 Sekunden und handelt beim nächsten Signal.'
       : 'Ausgeschaltet. Keine neuen Trades; offene Positionen betreut der Bot weiter bis zum Stop.'); liveLoad();
   }).catch(function (e) { lmsg(e.message || e, true); });
 }
 function livePanic() {
   if (!confirm('Not-Aus: Alle Echtgeld-Positionen sofort zum Marktpreis schließen und den Handel ausschalten?')) return;
-  api('live/panic', {}).then(function () { lmsg('Not-Aus gesendet. Der Bot schließt alles innerhalb von ca. 30 Sekunden.'); setTimeout(liveLoad, 35000); })
+  api('live/panic', { user: addr }).then(function () { lmsg('Not-Aus gesendet. Der Bot schließt alles innerhalb von ca. 30 Sekunden.'); setTimeout(liveLoad, 35000); })
     .catch(function (e) { lmsg(e.message || e, true); });
 }
 try { var saved = localStorage.getItem('hl_addr'); if (saved) show(saved); } catch (e) {}
@@ -1553,21 +1566,30 @@ class LiveView(PaperAccount):
     """Echtgeld-Konto (data/live.db) zum Anzeigen: Trades und Positionen von dort,
     Kontostand vom Bot gespeichert, Kurse und Marktdaten vom Übungskonto."""
 
-    def __init__(self, live_db: str, paper_db: str):
+    def __init__(self, live_db: str, paper_db: str, wallet: str | None = None):
         from tradingbot.hyperliquid import FEE_PCT
 
         super().__init__(live_db, 0.0, FEE_PCT)
         self.paper = PaperAccount(paper_db)
+        account = PaperAccount.get_state(self, "live:account")
+        # Nur die Wallet, für die der Bot handelt, sieht die Zahlen; alle anderen sehen 0
+        self.visible = bool(account and wallet and account.lower() == wallet.lower())
+
+    def positions(self):
+        return super().positions() if self.visible else {}
+
+    def trades(self):
+        return super().trades() if self.visible else []
 
     @property
     def balance(self) -> float:
         raw = PaperAccount.get_state(self, "live:balance")
-        return float(raw) if raw else 0.0
+        return float(raw) if raw and self.visible else 0.0
 
     @property
     def start_equity(self) -> float:
         raw = PaperAccount.get_state(self, "live:start_equity")
-        return float(raw) if raw else self.balance
+        return float(raw) if raw and self.visible else self.balance
 
     def get_state(self, key: str) -> str | None:
         return PaperAccount.get_state(self, key) if key.startswith("live:") else self.paper.get_state(key)
@@ -1631,13 +1653,14 @@ def bot_switch(bots: list[Bot], current: Bot) -> str:
     return f'<nav class="tabs bots">{links}</nav>'
 
 
-def page_for(bots: list[Bot], bot: Bot, path: str, query: dict) -> tuple[str, str]:
+def page_for(bots: list[Bot], bot: Bot, path: str, query: dict, wallet: str | None = None) -> tuple[str, str]:
     """(Inhalt, Content-Type) einer Seite. Links zeigen beim zweiten Bot auf /<slug>/…"""
 
     def arg(name):
         return query.get(name, [None])[0]
 
-    account = LiveView(bot.db_path, bot.candles_db) if bot.live else PaperAccount(bot.db_path, bot.start_equity, bot.fee_pct)
+    account = LiveView(bot.db_path, bot.candles_db, wallet) if bot.live else PaperAccount(bot.db_path, bot.start_equity, bot.fee_pct)
+    hidden = bot.live and not account.visible
     try:
         if path == "/chart":
             candles = CandleStore(bot.candles_db or bot.db_path)
@@ -1660,7 +1683,11 @@ def page_for(bots: list[Bot], bot: Bot, path: str, query: dict) -> tuple[str, st
     finally:
         account.close_db()
     if bot.live:
-        page = page.replace("Live · Übungskonto", "Echtgeld · Hyperliquid", 1)
+        page = page.replace("Live · Übungskonto", "Echtgeld · Hyperliquid", 1).replace("<body", "<body data-live", 1)
+        if hidden and path != "/wallet":
+            note = ('<section class="card"><p style="margin:0"><b>Verbinde oben rechts deine Wallet</b>, um deine Echtgeld-Daten zu sehen. '
+                    'Angezeigt werden nur die Daten der Wallet, für die der Bot handelt.</p></section>')
+            page = page.replace("</header>", "</header>" + note, 1)
     prefix = bot.prefix(bot is bots[0])
     if prefix:
         page = page.replace('href="/', f'href="{prefix}/').replace("href='/", f"href='{prefix}/")
@@ -1739,7 +1766,13 @@ def serve(db_path: str | None = None, start_equity: float = 10_000.0, fee_pct: f
                 self.end_headers()
                 return
             bot, path = found
-            page, content_type = page_for(bots, bot, path, parse_qs(url.query))
+            jar = SimpleCookie()
+            try:
+                jar.load(self.headers.get("Cookie", ""))
+            except Exception:
+                pass
+            wallet = jar["hl_addr"].value if "hl_addr" in jar and _is_address(jar["hl_addr"].value) else None
+            page, content_type = page_for(bots, bot, path, parse_qs(url.query), wallet)
             if password:
                 page = page.replace("<!--logout-->", _LOGOUT, 1)
             csv = path == "/trades.csv"
