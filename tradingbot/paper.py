@@ -52,7 +52,13 @@ class PaperAccount:
         path = Path(path)
         if str(path) != ":memory:":
             path.parent.mkdir(parents=True, exist_ok=True)
-        self.conn = sqlite3.connect(str(path))
+        # Krypto- und Gold-Bot teilen sich ein Konto: beim Schreiben kurz aufeinander warten
+        self.conn = sqlite3.connect(str(path), timeout=30)
+        if str(path) != ":memory:":
+            try:
+                self.conn.execute("PRAGMA journal_mode=WAL")
+            except sqlite3.OperationalError:  # gerade gesperrt: dann eben ohne, nächstes Mal klappt es
+                pass
         self.conn.executescript(_SCHEMA)
         cols = {r[1] for r in self.conn.execute("PRAGMA table_info(trades)")}
         if "strategy" not in cols:  # Konten von vor November 2026
@@ -124,7 +130,7 @@ class PaperAccount:
 
     def add_anchor(self, day: str, digest: str, prev: str, tx_url: str | None) -> None:
         with self.conn:
-            self.conn.execute("INSERT INTO anchors VALUES (?, ?, ?, ?)", (day, digest, prev, tx_url))
+            self.conn.execute("INSERT OR IGNORE INTO anchors VALUES (?, ?, ?, ?)", (day, digest, prev, tx_url))
 
     def get_state(self, key: str) -> str | None:
         row = self.conn.execute("SELECT value FROM state WHERE key = ?", (key,)).fetchone()
@@ -136,3 +142,30 @@ class PaperAccount:
 
     def close_db(self) -> None:
         self.conn.close()
+
+
+def merge_into(src_path: str | Path, dest: PaperAccount) -> list[str]:
+    """Übernimmt offene Positionen, Kursdaten fürs Chart und Bot-Zustand eines zweiten
+    Übungskontos (z. B. Gold) in das gemeinsame Konto. Abgeschlossene Trades bleiben im
+    alten Konto als Archiv: sie nachträglich einzufügen würde die Tagesnachweise brechen.
+    Gibt die übernommenen Coins zurück."""
+    src = sqlite3.connect(str(src_path), timeout=30)
+    try:
+        moved = []
+        for coin, data in src.execute("SELECT coin, data FROM positions").fetchall():
+            if dest.position(coin) is None:
+                with dest.conn:
+                    dest.conn.execute("INSERT INTO positions VALUES (?, ?)", (coin, data))
+                moved.append(coin)
+        with dest.conn:
+            for key, value in src.execute("SELECT key, value FROM state").fetchall():
+                dest.conn.execute("INSERT OR IGNORE INTO state VALUES (?, ?)", (key, value))
+        if src.execute("SELECT name FROM sqlite_master WHERE name = 'candles'").fetchone():
+            from tradingbot.storage import _SCHEMA as CANDLE_SCHEMA
+            dest.conn.executescript(CANDLE_SCHEMA)
+            rows = src.execute("SELECT coin, timeframe, time, open, high, low, close, volume FROM candles").fetchall()
+            with dest.conn:
+                dest.conn.executemany("INSERT OR IGNORE INTO candles VALUES (?, ?, ?, ?, ?, ?, ?, ?)", rows)
+        return moved
+    finally:
+        src.close()

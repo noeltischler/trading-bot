@@ -40,6 +40,12 @@ def account_marks(account: PaperAccount, now: float | None = None) -> tuple[floa
     return peak, day_start
 
 
+def own_open(account: PaperAccount, cfg: Config) -> int:
+    """Offene Positionen dieses Bots. Teilen sich Krypto- und Gold-Bot ein Konto,
+    zählt jeder nur seine eigenen Coins für max_open_positions."""
+    return sum(1 for coin in account.positions() if coin in cfg.symbols)
+
+
 _fg_cache: dict = {"at": 0.0, "df": None}
 
 
@@ -125,7 +131,7 @@ def step(cfg: Config, market, account: PaperAccount, chart: CandleStore | None =
                 log.info("%s Signal ignoriert: Pause wegen Termin „%s“", coin, event)
             elif pos is None and risk == 0:
                 log.info("%s Signal ignoriert: Tagesverlust-Grenze erreicht, Pause bis Mitternacht (UTC)", coin)
-            elif pos is None and len(account.positions()) < cfg.risk.max_open_positions:
+            elif pos is None and own_open(account, cfg) < cfg.risk.max_open_positions:
                 stop_pct, trail_pct = atr_pcts(bp, float(atr(df).iloc[-1]), price)
                 new = Position.open(coin, sig, price, account.balance, risk, stop_pct, int(time.time()),
                                     bp.take_profit_r, trail_pct, bp.max_position_pct, source)

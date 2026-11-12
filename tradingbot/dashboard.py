@@ -851,7 +851,7 @@ def _default_range(tf_seconds: int) -> str:
 
 def render_chart(account: PaperAccount, candles: CandleStore, coins: list[str], timeframe: str,
                  coin: str | None = None, range_key: str | None = None, title: str = "Trading-Bot",
-                 now: int | None = None, trade_id: int | None = None) -> str:
+                 now: int | None = None, trade_id: int | None = None, timeframes: dict | None = None) -> str:
     all_trades = account.trades()
     focus = next((t for t in all_trades if t["id"] == trade_id), None) if trade_id is not None else None
     coins = coins or sorted({t["coin"] for t in all_trades} | set(account.positions()))
@@ -860,6 +860,7 @@ def render_chart(account: PaperAccount, candles: CandleStore, coins: list[str], 
     if not coins:
         return _page(title, "chart", '<section class="card muted">Noch keine Coins konfiguriert.</section>')
     coin = focus["coin"] if focus else coin if coin in coins else coins[0]
+    timeframe = (timeframes or {}).get(coin, timeframe)
     tf = TIMEFRAME_SECONDS.get(timeframe, 3600)
     now = _now(now)
     until = None
@@ -1237,7 +1238,9 @@ function load() {
     var m = s.marginSummary || {}, pos = (s.assetPositions || []).map(function (p) { return p.position; });
     var upnl = pos.reduce(function (t, p) { return t + Number(p.unrealizedPnl || 0); }, 0);
     $('w-value').textContent = money(m.accountValue || 0) + ' $';
-    $('w-free').textContent = money(s.withdrawable || 0) + ' $';
+    // Sicher auszahlbar: offene Trades behalten doppelt so viel Sicherheit (Margin) wie nötig
+    var free = Number(s.withdrawable || 0), safe = Math.max(0, Math.min(free, Number(m.accountValue || 0) - 2 * Number(m.totalMarginUsed || 0)));
+    $('w-free').textContent = money(safe) + ' $'; $('w-max').textContent = money(free) + ' $';
     $('w-upnl').textContent = signed(upnl) + ' $'; $('w-upnl').className = 'v ' + (upnl > 0 ? 'up' : upnl < 0 ? 'down' : '');
     $('w-npos').textContent = pos.length;
   }).catch(function (e) { msg('Konnte Hyperliquid nicht erreichen: ' + (e.message || e), true); });
@@ -1396,7 +1399,7 @@ Nur du kannst auszahlen, der Bot kann nur handeln. Dein Schlüssel bleibt in dei
 <div class="wbal" title="USDT und USDC in deiner Wallet, direkt von der Blockchain"><div class="wb-l">In deiner Wallet</div>
 <div class="wb-v" id="w-chain_sum">–</div>
 <div class="wb-d"><span>USDT <b id="w-bsc_usdt">–</b></span><span>USDC <b id="w-bsc_usdc">–</b></span><span>Arb <b id="w-arb_usdc">–</b></span></div></div>
-<div class="kpi"><div class="v" id="w-free">–</div><div class="l">Frei zum Auszahlen</div></div>
+<div class="kpi" title="So viel kannst du abheben, ohne offene Trades zu gefährden: Sie behalten doppelt so viel Sicherheit, wie Hyperliquid verlangt. „Max.“ ist die technische Obergrenze."><div class="v" id="w-free">–</div><div class="l">Sicher auszahlbar · max. <span id="w-max">–</span></div></div>
 <div class="kpi"><div class="v" id="w-upnl">–</div><div class="l">Offene Positionen</div></div>
 <div class="kpi"><div class="v" id="w-npos">–</div><div class="l">Anzahl Positionen</div></div></section>
 <section class="card"><h2>Ein- und Auszahlungen</h2>{relay}
@@ -1415,9 +1418,17 @@ class Bot:
     fee_pct: float
     coins: list[str] = field(default_factory=list)
     timeframe: str = "1h"
+    timeframes: dict[str, str] = field(default_factory=dict)  # Coin → Zeitrahmen, wenn er abweicht
+    aliases: list[str] = field(default_factory=list)          # alte Adressen, z. B. /gold
 
     def prefix(self, first: bool) -> str:
         return "" if first else f"/{self.slug}"
+
+    def add_coins(self, slug: str, coins: list[str], timeframe: str) -> None:
+        """Ein zweiter Bot mit demselben Konto (z. B. Gold): seine Coins erscheinen hier mit."""
+        self.coins += [c for c in coins if c not in self.coins]
+        self.timeframes.update({c: timeframe for c in coins if timeframe != self.timeframe})
+        self.aliases.append(slug)
 
 
 PAGES = ("/", "/index.html", "/chart", "/trades", "/trades.csv", "/wallet")
@@ -1430,6 +1441,12 @@ def route(bots: list[Bot], path: str) -> tuple[Bot, str] | None:
         if path == p or path.startswith(p + "/"):
             sub = path[len(p):] or "/"
             return (bot, sub) if sub in PAGES else None
+    for bot in bots:
+        for slug in bot.aliases:  # alte Lesezeichen wie /gold/ führen ins gemeinsame Konto
+            p = f"/{slug}"
+            if path == p or path.startswith(p + "/"):
+                sub = path[len(p):] or "/"
+                return (bot, sub) if sub in PAGES else None
     return (bots[0], path) if path in PAGES else None
 
 
@@ -1455,7 +1472,8 @@ def page_for(bots: list[Bot], bot: Bot, path: str, query: dict) -> tuple[str, st
             try:
                 trade = arg("trade")
                 page = render_chart(account, candles, bot.coins, bot.timeframe, arg("coin"), arg("range"), bot.title,
-                                    trade_id=int(trade) if trade and trade.isdigit() else None)
+                                    trade_id=int(trade) if trade and trade.isdigit() else None,
+                                    timeframes=bot.timeframes)
             finally:
                 candles.close()
         elif path == "/trades":

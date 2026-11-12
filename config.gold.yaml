@@ -39,4 +39,4 @@ strategy:
     allow_short: false        # Gold nur kaufen, nicht shorten
 
 database: data/gold-market.db
-paper_database: data/gold-paper.db
+paper_database: data/paper.db     # dasselbe Konto wie der Krypto-Bot: ein Kapital für beides

@@ -167,3 +167,44 @@ def test_old_account_gets_strategy_column_and_keeps_fingerprints(tmp_path):
     acc.open(Position.open("ETH", LONG, 100.0, acc.balance, 1.0, 1.0, 7200, strategy="RSI-2 10/90"))
     acc.close("ETH", 101.0, "stop", when=10_000)
     assert acc.trades()[-1]["strategy"] == "RSI-2 10/90"
+
+
+def test_shared_account_counts_only_own_coins_for_max_positions():
+    from tradingbot.live import own_open
+
+    closes = _uptrend_with_fresh_cross()
+    acc = PaperAccount(":memory:", fee_pct=0.0)
+    # Gold-Bot hat schon eine Position im gemeinsamen Konto
+    acc.open(Position.open("GOLD", LONG, 2000.0, acc.balance, 0.75, 1.5, 0))
+    cfg = _cfg()
+    cfg.risk.max_open_positions = 1
+    assert own_open(acc, cfg) == 0
+    step(cfg, FakeMarket(_frame(closes), price=closes[-1]), acc)
+    assert set(acc.positions()) == {"GOLD", "BTC"}
+
+
+def test_merge_gold_account_into_shared(tmp_path):
+    from tradingbot.cli import main
+    from tradingbot.paper import merge_into
+    from tradingbot.storage import CandleStore
+
+    gold = PaperAccount(tmp_path / "gold.db", fee_pct=0.0)
+    gold.open(Position.open("GOLD", LONG, 2000.0, gold.balance, 0.75, 1.5, 0))
+    gold.set_state("last_candle:GOLD", "123")
+    gold.close_db()
+    CandleStore(tmp_path / "gold.db").upsert("GOLD", "1d", _frame([1.0, 2.0]))
+    main_acc = PaperAccount(tmp_path / "paper.db", fee_pct=0.0)
+    main_acc.open(Position.open("BTC", LONG, 100.0, main_acc.balance, 1.0, 1.0, 0))
+    main_acc.close_db()
+
+    (tmp_path / "config.yaml").write_text(f"symbols: {{BTC: BTC/USD}}\npaper_database: {tmp_path / 'paper.db'}\n")
+    (tmp_path / "gold.yaml").write_text(f"name: Gold-Bot\nsymbols: {{GOLD: PAXG/USD}}\npaper_database: {tmp_path / 'gold.db'}\n")
+    args = ["--config", str(tmp_path / "gold.yaml"), "merge-account", "--into", str(tmp_path / "config.yaml")]
+    assert main(args) == 0
+    assert f"paper_database: {tmp_path / 'paper.db'}" in (tmp_path / "gold.yaml").read_text()
+    acc = PaperAccount(tmp_path / "paper.db")
+    assert set(acc.positions()) == {"BTC", "GOLD"} and acc.get_state("last_candle:GOLD") == "123"
+    assert acc.balance == 10_000  # Kapital bleibt eins, nicht doppelt
+    assert len(CandleStore(tmp_path / "paper.db").load("GOLD", "1d")) == 2
+    assert main(args) == 0  # zweiter Lauf: nichts mehr zu tun
+    assert merge_into(tmp_path / "gold.db", acc) == []  # GOLD ist schon da
