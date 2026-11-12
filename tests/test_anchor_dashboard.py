@@ -205,6 +205,27 @@ def test_one_dashboard_for_two_bots(tmp_path):
     assert ctype.startswith("text/csv")
 
 
+def test_bots_with_one_account_share_one_dashboard(tmp_path):
+    from tradingbot.dashboard import Bot, page_for, route
+
+    main = Bot("config", "Krypto", "Trading-Bot", str(tmp_path / "a.db"), 10000, 0.1, ["BTC"], "4h")
+    main.add_coins("gold", ["GOLD"], "1d")
+    bots = [main]
+    assert route(bots, "/gold/") == (main, "/") and route(bots, "/gold/trades") == (main, "/trades")
+    page, _ = page_for(bots, main, "/chart", {"coin": ["GOLD"]})
+    assert "GOLD · 1d-Kerzen" in page and '<nav class="tabs bots">' not in page
+    page, _ = page_for(bots, main, "/chart", {"coin": ["BTC"]})
+    assert "BTC · 4h-Kerzen" in page
+
+
+def test_wallet_shows_safe_withdraw_amount():
+    from tradingbot.dashboard import render_wallet
+
+    page = render_wallet("Trading-Bot", "mainnet")
+    assert "Sicher auszahlbar" in page and 'id="w-max"' in page
+    assert "2 * Number(m.totalMarginUsed" in page
+
+
 def test_trade_and_bar_tips():
     from tradingbot.dashboard import bucket_tips, trade_tip
 

@@ -29,7 +29,7 @@ class CandleStore:
         path = Path(path)
         if str(path) != ":memory:":
             path.parent.mkdir(parents=True, exist_ok=True)
-        self.conn = sqlite3.connect(str(path))
+        self.conn = sqlite3.connect(str(path), timeout=30)
         self.conn.executescript(_SCHEMA)
 
     def close(self) -> None:

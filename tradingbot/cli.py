@@ -145,7 +145,9 @@ def cmd_run(args) -> int:
         handlers=[logging.StreamHandler(), logging.FileHandler(log_file(args.config), encoding="utf-8")],
     )
     account = PaperAccount(cfg.paper_database, cfg.start_equity, cfg.fee_pct)
-    run_forever(cfg, _market(cfg.exchange), account, chart=CandleStore(cfg.paper_database))
+    from tradingbot.hyperliquid import LiveAccount
+    live = LiveAccount(cfg.live_database)  # tut nichts, bis Echtgeld im Dashboard eingeschaltet ist
+    run_forever(cfg, _market(cfg.exchange), account, chart=CandleStore(cfg.paper_database), live=live)
     return 0
 
 
@@ -179,9 +181,13 @@ def cmd_dashboard(args) -> int:
             continue
         cfg = load_config(path)
         label = "Krypto" if cfg.name == "Trading-Bot" else cfg.name.removesuffix("-Bot")
+        shared = next((b for b in bots if Path(b.db_path).resolve() == Path(cfg.paper_database).resolve()), None)
+        if shared:  # gemeinsames Konto: ein Dashboard für alles, Coins mit eigenem Zeitrahmen
+            shared.add_coins(Path(path).stem.lower(), list(cfg.symbols), cfg.timeframe)
+            continue
         bots.append(Bot(Path(path).stem.lower(), label, cfg.name, cfg.paper_database, cfg.start_equity,
                         cfg.fee_pct, list(cfg.symbols), cfg.timeframe))
-    serve(port=args.port, host=args.host, bots=bots)
+    serve(port=args.port, host=args.host, bots=bots, live_db=load_config(args.config).live_database)
     return 0
 
 
@@ -201,6 +207,33 @@ def cmd_verify(args) -> int:
     print(f"Alles in Ordnung: {len(anchors)} Tagesnachweise, {len(acc.trades())} Trades unverändert.")
     for a in anchors[-5:]:
         print(f"  {a['day']}  {a['hash'][:16]}…  {a['tx_url'] or 'nur lokal'}")
+    return 0
+
+
+def cmd_merge_account(args) -> int:
+    """Legt das Übungskonto dieses Bots (z. B. gold.yaml) mit dem von --into zusammen:
+    offene Positionen wandern ins gemeinsame Konto, danach zeigt paper_database darauf."""
+    import re
+
+    from tradingbot.paper import PaperAccount, merge_into
+
+    cfg, main_cfg = load_config(args.config), load_config(args.into)
+    src, dest = Path(cfg.paper_database), Path(main_cfg.paper_database)
+    if src.resolve() == dest.resolve():
+        print(f"{cfg.name} nutzt schon das gemeinsame Konto ({dest}).")
+        return 0
+    acc = PaperAccount(dest, main_cfg.start_equity, main_cfg.fee_pct)
+    try:
+        moved = merge_into(src, acc) if src.exists() else []
+    finally:
+        acc.close_db()
+    text = Path(args.config).read_text(encoding="utf-8")
+    line = f"paper_database: {main_cfg.paper_database}"
+    text, n = re.subn(r"(?m)^paper_database:.*$", line, text)
+    Path(args.config).write_text(text if n else text.rstrip("\n") + "\n" + line + "\n", encoding="utf-8")
+    print(f"{cfg.name} handelt jetzt mit dem gemeinsamen Konto ({dest})."
+          + (f" Übernommene offene Positionen: {', '.join(moved)}." if moved else " Keine offenen Positionen zu übernehmen.")
+          + f" Alte Trades bleiben als Archiv in {src}.")
     return 0
 
 
@@ -293,13 +326,15 @@ def main(argv: list[str] | None = None) -> int:
     db.add_argument("--host", default="127.0.0.1", help="0.0.0.0 = auch aus dem Netzwerk erreichbar")
     sub.add_parser("verify", help="Trade-Protokoll gegen die Tagesnachweise prüfen")
     sub.add_parser("telegram", help="Telegram-Benachrichtigungen einrichten und testen (als root auf dem Server)")
+    mg = sub.add_parser("merge-account", help="Übungskonto mit einem anderen zusammenlegen, z. B. Gold ins Krypto-Konto")
+    mg.add_argument("--into", default="config.yaml", help="Konfiguration mit dem gemeinsamen Konto")
     nw = sub.add_parser("news", help="Nachrichtenquellen abrufen und prüfen, welche erreichbar sind")
     nw.add_argument("--save", action="store_true", help="Schlagzeilen auch fürs Dashboard speichern")
     args = parser.parse_args(argv)
 
     commands = {"fetch": cmd_fetch, "backtest": cmd_backtest, "optimize": cmd_optimize, "run": cmd_run, "status": cmd_status,
                 "dashboard": cmd_dashboard, "verify": cmd_verify, "news": cmd_news,
-                "telegram": cmd_telegram}
+                "telegram": cmd_telegram, "merge-account": cmd_merge_account}
     try:
         return commands[args.command](args)
     except (FileNotFoundError, ValueError) as exc:

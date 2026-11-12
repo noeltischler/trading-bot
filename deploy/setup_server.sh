@@ -37,6 +37,11 @@ sudo -u bot python3 -m venv "$APP/.venv"
 sudo -u bot "$APP/.venv/bin/pip" install -q --upgrade pip
 sudo -u bot "$APP/.venv/bin/pip" install -q -r "$APP/requirements.txt"
 
+echo "==> Ein gemeinsames Konto für Krypto und Gold"
+# Einmalig: Gold-Bot auf das Krypto-Konto umstellen, offene Gold-Position wird übernommen
+systemctl stop tradingbot-gold 2>/dev/null || true
+(cd "$APP" && sudo -u bot .venv/bin/python -m tradingbot --config gold.yaml merge-account --into config.yaml)
+
 echo "==> Dashboard-Passwort"
 if [ ! -f "$ENV_FILE" ]; then
   PASSWORD="$(python3 -c 'import secrets; print(secrets.token_urlsafe(12))')"
@@ -49,7 +54,7 @@ echo "==> Dienste"
 cp "$APP/deploy/tradingbot.service" /etc/systemd/system/
 cp "$APP/deploy/tradingbot-dashboard.service" /etc/systemd/system/
 cp "$APP/deploy/tradingbot-gold.service" /etc/systemd/system/
-# Früher hatte der Gold-Bot ein eigenes Dashboard; jetzt ist er im gemeinsamen Dashboard (/gold)
+# Früher hatte der Gold-Bot ein eigenes Dashboard; jetzt ist er im gemeinsamen Dashboard
 if [ -f /etc/systemd/system/tradingbot-gold-dashboard.service ]; then
   systemctl disable --now tradingbot-gold-dashboard || true
   rm -f /etc/systemd/system/tradingbot-gold-dashboard.service
@@ -82,7 +87,7 @@ ufw --force enable >/dev/null
 echo
 echo "Fertig! Der Bot läuft rund um die Uhr."
 echo "Dashboard:  https://$HOST"
-echo "            oben umschalten: Krypto | Gold  (Gold direkt: https://$HOST/gold/)"
+echo "            Krypto und Gold in einem Konto (alte Adresse /gold/ geht weiter)"
 echo "Anmelden:   nur Passwort eingeben, abmelden mit dem Knopf oben rechts"
 echo "Passwort:   $DASHBOARD_PASSWORD"
 echo
