@@ -165,9 +165,14 @@ def test_dashboard_only_approves_this_servers_agent(tmp_path):
     yes = lambda path, payload, net: (200, json.dumps([{"address": agent.lower(), "name": "tradingbot"}]).encode())
     assert live_request("start", {"user": user}, db, post=no)[0] == 400
     code, st = live_request("start", {"user": user}, db, post=yes)
-    assert code == 200 and st["enabled"] and st["account"] == user and st["agent"] == agent
-    code, st = live_request("panic", {}, db)
-    assert st["panic"] and not st["enabled"]
+    assert code == 200 and st["enabled"] and st["mine"] and st["agent"] == agent
+    assert live_request("status", {}, db)[1]["positions"] == [] and not live_request("status", {}, db)[1]["mine"]
+    assert live_request("panic", {"user": "0x" + "b" * 40}, db)[0] == 403  # fremde Wallet darf nicht stoppen
+    other = live_request("status", {"user": "0x" + "b" * 40}, db)[1]
+    assert other["busy"] and not other["enabled"] and not other["mine"]
+    assert live_request("start", {"user": "0x" + "b" * 40}, db, post=yes)[0] == 400  # Bot gehört gerade Noel
+    code, st = live_request("panic", {"user": user}, db)
+    assert st["panic"] and not st["enabled"] and st["mine"]
     assert live_request("start", {"user": user, "x": 1}, db, post=yes)[0] == 400
 
 
@@ -182,6 +187,7 @@ def test_dashboard_echtgeld_view_reads_live_trades(tmp_path):
     acc = PaperAccount(live, 0.0, hl.FEE_PCT)
     acc.set_state("live:balance", "102.86")
     acc.set_state("live:start_equity", "100")
+    acc.set_state("live:account", "0x" + "a" * 40)
     acc.open(Position.open("BTC", LONG, 100.0, 100.0, 0.75, 3.0, 0))
     acc.close("BTC", 103.0, "signal", when=10)
     acc.open(Position.open("ETH", SHORT, 100.0, 100.0, 0.75, 3.0, 0))
@@ -189,13 +195,18 @@ def test_dashboard_echtgeld_view_reads_live_trades(tmp_path):
     bots = [Bot("config", "Übungskonto", "Trading-Bot", paper, 10000, 0.1, ["BTC", "ETH"], "4h"),
             Bot("echtgeld", "Echtgeld", "Trading-Bot", live, 0.0, 0.045, ["BTC", "ETH"], "4h", live=True, candles_db=paper)]
     assert route(bots, "/echtgeld/trades") == (bots[1], "/trades")
-    page, _ = page_for(bots, bots[1], "/", {})
+    page, _ = page_for(bots, bots[1], "/", {})  # keine Wallet verbunden: nur Nullen
+    assert "Verbinde oben rechts deine Wallet" in page and "102,86" not in page and "data-live" in page
+    page, _ = page_for(bots, bots[1], "/trades", {}, "0x" + "b" * 40)
+    assert "Keine Trades für diese Auswahl" in page
+    w = "0x" + "a" * 40
+    page, _ = page_for(bots, bots[1], "/", {}, w)
     assert "Echtgeld · Hyperliquid" in page and "102,86" in page and "Marktlage" not in page
     assert '<a href="/echtgeld" class="on">Echtgeld</a>' in page and "/echtgeld/trades" in page
     assert "ETH" in page  # offene Position mit Kurs vom Übungskonto
-    page, _ = page_for(bots, bots[1], "/trades", {})
+    page, _ = page_for(bots, bots[1], "/trades", {}, w)
     assert "BTC" in page
-    page, _ = page_for(bots, bots[1], "/chart", {"coin": ["BTC"]})
+    page, _ = page_for(bots, bots[1], "/chart", {"coin": ["BTC"]}, w)
     assert "BTC · 4h-Kerzen" in page
     page, _ = page_for(bots, bots[0], "/", {})
     assert "Live · Übungskonto" in page and "Marktlage" in page
