@@ -63,12 +63,13 @@ def fear_greed_now(max_age: float = 3600) -> "pd.DataFrame | None":
 
 
 def step(cfg: Config, market, account: PaperAccount, chart: CandleStore | None = None,
-         fear_greed=fear_greed_now, notify_fn=None) -> None:
+         fear_greed=fear_greed_now, notify_fn=None, allow_entries: bool = True) -> None:
     """Ein Durchlauf über alle Coins. Verarbeitet jede Kerze genau einmal.
     Mit chart werden Kerzen und aktueller Kurs fürs Dashboard gespeichert.
     fear_greed: Funktion, die den Fear & Greed Verlauf liefert (für Tests ersetzbar).
     notify_fn: notify.send oder None; bekommt (account, Titel, Text, Tags) bei jedem
-    eröffneten und geschlossenen Trade."""
+    eröffneten und geschlossenen Trade.
+    allow_entries=False: nur offene Positionen weiter betreuen, keine neuen eröffnen."""
 
     def tell(text: tuple[str, str, list[str]]) -> None:
         if notify_fn is not None:
@@ -131,12 +132,20 @@ def step(cfg: Config, market, account: PaperAccount, chart: CandleStore | None =
                 log.info("%s Signal ignoriert: Pause wegen Termin „%s“", coin, event)
             elif pos is None and risk == 0:
                 log.info("%s Signal ignoriert: Tagesverlust-Grenze erreicht, Pause bis Mitternacht (UTC)", coin)
+            elif pos is None and not allow_entries:
+                log.info("%s Signal ignoriert: keine neuen Trades (ausgeschaltet)", coin)
             elif pos is None and own_open(account, cfg) < cfg.risk.max_open_positions:
                 stop_pct, trail_pct = atr_pcts(bp, float(atr(df).iloc[-1]), price)
                 new = Position.open(coin, sig, price, account.balance, risk, stop_pct, int(time.time()),
                                     bp.take_profit_r, trail_pct, bp.max_position_pct, source)
                 if new:
-                    account.open(new)
+                    try:
+                        account.open(new)
+                    except Exception as exc:  # z. B. Börse lehnt ab: nächster Coin, Kerze gilt als erledigt
+                        log.warning("%s Eröffnung fehlgeschlagen: %s", coin, exc)
+                        tell((f"{coin}: Eröffnung fehlgeschlagen", str(exc)[:300], ["warning"]))
+                        account.set_state(key, str(int(last.time)))
+                        continue
                     log.info("%s %s eröffnet bei %.2f, Menge %.6f, Stop %.2f (%s)",
                              coin, SIDE_NAME[sig], price, new.qty, new.stop, source)
                     tell(notify.opened_text(coin, sig == LONG, price, new.stop, abs(price - new.stop) * new.qty, source))
@@ -144,8 +153,63 @@ def step(cfg: Config, market, account: PaperAccount, chart: CandleStore | None =
         account.set_state(key, str(int(last.time)))
 
 
+class LoopMarket:
+    """Merkt sich Kerzen und Kurse für einen Durchlauf, damit Übungs- und Echtgeld-Konto
+    nicht doppelt bei der Börse abfragen."""
+
+    def __init__(self, market):
+        self.market, self.id, self._cache = market, market.id, {}
+
+    def closed_candles(self, symbol, timeframe, limit=400):
+        key = ("c", symbol, timeframe, limit)
+        if key not in self._cache:
+            self._cache[key] = self.market.closed_candles(symbol, timeframe, limit=limit)
+        return self._cache[key]
+
+    def last_price(self, symbol):
+        key = ("p", symbol)
+        if key not in self._cache:
+            self._cache[key] = self.market.last_price(symbol)
+        return self._cache[key]
+
+
+def live_round(cfg: Config, market, live, notify_fn=None, fear_greed=fear_greed_now) -> None:
+    """Echtgeld-Durchlauf auf Hyperliquid, nach dem Übungskonto. Läuft nur, wenn im
+    Dashboard eingeschaltet oder noch Echtgeld-Positionen offen sind."""
+    from tradingbot import hyperliquid as hl
+
+    def tell(title, text, tags):
+        if notify_fn is not None:
+            notify_fn(live, "Echtgeld · " + title, text, tags)
+
+    if live.get_state("live:panic") == "1":
+        live.set_state("live:enabled", "0")
+        if not live.address:
+            live.address = live.get_state("live:account")
+        closed = live.close_all()
+        live.set_state("live:panic", "0")
+        log.warning("Echtgeld Not-Aus: %s", ", ".join(f"{c} {p:+.2f}" for c, p in closed) or "keine Positionen")
+        tell("Not-Aus ausgeführt", "Alle Echtgeld-Positionen geschlossen, Handel ausgeschaltet. "
+             + ", ".join(f"{c} {p:+.2f} $" for c, p in closed), ["rotating_light"])
+        return
+    mine = [c for c in live.positions() if c in cfg.symbols]
+    enabled = hl.is_enabled(live)
+    if not enabled and not mine:
+        return
+    live.address = live.get_state("live:account") or live.address
+    for coin, pos, price, pnl in live.sync(cfg.symbols):
+        log.info("Echtgeld %s %s an der Börse gestoppt bei %.4f, Ergebnis %+.2f", coin, SIDE_NAME[pos.side], price, pnl)
+        tell(*notify.closed_text(coin, pos.side == LONG, price, pnl, "stop", live.balance))
+
+    def wrapped(acc, title, text, tags=None, *args, **kw):
+        tell(title, text, tags)
+
+    step(cfg, market, live, None, fear_greed=fear_greed, notify_fn=wrapped if notify_fn else None,
+         allow_entries=enabled)
+
+
 def run_forever(cfg: Config, market, account: PaperAccount, poll_seconds: int = 30,
-                chart: CandleStore | None = None) -> None:
+                chart: CandleStore | None = None, live=None) -> None:
     log.info("%s gestartet: %s, %s, Coins: %s, Kontostand %.2f",
              cfg.name, market.id, cfg.timeframe, ", ".join(cfg.symbols), account.balance)
     last_news = 0.0
@@ -157,8 +221,14 @@ def run_forever(cfg: Config, market, account: PaperAccount, poll_seconds: int = 
         log.warning("Die Liste der Wirtschaftstermine (tradingbot/events.py) endet bald und muss ergänzt werden.")
     while True:
         try:
-            step(cfg, market, account, chart, notify_fn=notify.send if cfg.notify else None)
+            loop_market = LoopMarket(market)
+            step(cfg, loop_market, account, chart, notify_fn=notify.send if cfg.notify else None)
             anchor_due_days(account)
+            if live is not None:
+                try:
+                    live_round(cfg, loop_market, live, notify.send if cfg.notify else None)
+                except Exception:  # Fehler beim Echtgeld dürfen das Übungskonto nicht stören
+                    log.exception("Fehler im Echtgeld-Durchlauf, neuer Versuch in %s s", poll_seconds)
             if time.time() - last_news > 15 * 60:  # Schlagzeilen alle 15 Minuten, nur zum Beobachten
                 last_news = time.time()
                 n = news.save(account.conn, news.fetch_all(log=log))

@@ -39,6 +39,7 @@ class Config:
     live_bars: int = 400
     database: str = "data/market.db"
     paper_database: str = "data/paper.db"
+    live_database: str = "data/live.db"  # Echtgeld auf Hyperliquid (gemeinsam für Krypto und Gold)
     start_equity: float = 10_000.0
     fee_pct: float = 0.1
     notify: bool = True  # Handy-Benachrichtigung über ntfy bei jedem Trade
@@ -99,6 +100,7 @@ def load_config(path: str | Path = "config.yaml") -> Config:
         live_bars=int(raw.get("live_bars", 400)),
         database=str(raw.get("database", "data/market.db")),
         paper_database=str(raw.get("paper_database", "data/paper.db")),
+        live_database=str(raw.get("live_database", "data/live.db")),
         start_equity=float(raw.get("start_equity", 10_000.0)),
         fee_pct=float(raw.get("fee_pct", 0.1)),
         notify=bool(raw.get("notify", True)),

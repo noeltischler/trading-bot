@@ -163,6 +163,14 @@ nav.menu a.out:hover { color:var(--down) }
 .wchip.on .dot { display:block } .wchip.on svg { display:none }
 .wchip:active { transform:scale(.95) }
 .wchip .short { display:none }
+.l-head { display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin:0 0 10px }
+.l-pill { font-size:12px; font-weight:700; padding:4px 10px; border-radius:999px; background:var(--glass); outline:1px solid var(--line); color:var(--muted) }
+.l-pill.on { color:#fff; outline:0; background:linear-gradient(135deg,#10b981,#06b6d4) }
+.l-steps { margin:0; padding-left:20px; line-height:2.2 } .l-steps li.done::marker { color:var(--up) }
+.btn-sm { padding:6px 12px !important; font-size:13px !important }
+.btn-ghost { background:var(--glass) !important; color:var(--text) !important; outline:1px solid var(--line) }
+.btn-danger { background:linear-gradient(135deg,#ef4444,#f97316) !important }
+.btn[disabled] { opacity:.45; cursor:not-allowed }
 .wkpis { position:relative }
 .wbal { position:absolute; top:14px; right:14px; min-width:150px; padding:10px 12px; border-radius:14px; text-align:right;
   background:linear-gradient(135deg,rgba(79,70,229,.10),rgba(6,182,212,.10)); outline:1px solid var(--line); outline-offset:-1px }
@@ -1029,7 +1037,7 @@ def trades_csv(trades: list[dict]) -> str:
 # des Nutzers unterschriebene Auszahlungen an Hyperliquid weiter.
 HL_API = {"testnet": "https://api.hyperliquid-testnet.xyz", "mainnet": "https://api.hyperliquid.xyz"}
 HL_APP = {"testnet": "https://app.hyperliquid-testnet.xyz", "mainnet": "https://app.hyperliquid.xyz"}
-HL_INFO_TYPES = ("clearinghouseState", "userNonFundingLedgerUpdates")
+HL_INFO_TYPES = ("clearinghouseState", "userNonFundingLedgerUpdates", "extraAgents")
 
 
 def hl_network() -> str:
@@ -1048,13 +1056,23 @@ def hl_info_allowed(body) -> bool:
         and set(body) <= {"type", "user", "startTime"}
 
 
-def hl_exchange_allowed(body, network: str) -> bool:
-    """Nur Auszahlungen (withdraw3), die die eigene Wallet unterschrieben hat, und nur ins eingestellte Netz."""
+AGENT_NAME = "tradingbot"
+
+
+def hl_exchange_allowed(body, network: str, agent: str | None = None) -> bool:
+    """Nur Aktionen, die die eigene Wallet unterschrieben hat, und nur ins eingestellte Netz:
+    Auszahlung (withdraw3), Übertrag an Relay (sendAsset) und die Freigabe genau des
+    Bot-Schlüssels dieses Servers (approveAgent; ein Agent kann nur handeln, nie auszahlen)."""
     if not isinstance(body, dict) or set(body) != {"action", "nonce", "signature"}:
         return False
     a, sig = body["action"], body["signature"]
     if not (isinstance(sig, dict) and set(sig) == {"r", "s", "v"} and isinstance(a, dict)):
         return False
+    if a.get("type") == "approveAgent":
+        return (set(a) == {"type", "signatureChainId", "hyperliquidChain", "agentAddress", "agentName", "nonce"}
+                and bool(agent) and isinstance(a["agentAddress"], str) and a["agentAddress"].lower() == agent.lower()
+                and a["agentName"] == AGENT_NAME and a["nonce"] == body["nonce"]
+                and a["hyperliquidChain"] == ("Mainnet" if network == "mainnet" else "Testnet"))
     if a.get("type") == "sendAsset":  # Relay-Auszahlung: Übertrag an Relay, von der eigenen Wallet unterschrieben
         return (set(a) == {"type", "signatureChainId", "hyperliquidChain", "destination", "sourceDex", "destinationDex",
                            "token", "amount", "fromSubAccount", "nonce"}
@@ -1065,6 +1083,61 @@ def hl_exchange_allowed(body, network: str) -> bool:
             and a["hyperliquidChain"] == ("Mainnet" if network == "mainnet" else "Testnet")
             and _is_address(a["destination"]) and isinstance(a["amount"], str) and a["time"] == body["nonce"]
             and isinstance(sig, dict) and set(sig) == {"r", "s", "v"})
+
+
+def agent_approved(user: str, agent: str, network: str, post=None) -> bool:
+    """Hat die Wallet den Bot-Schlüssel auf Hyperliquid freigegeben?"""
+    import json
+
+    code, data = (post or hl_post)("/info", {"type": "extraAgents", "user": user}, network)
+    try:
+        agents = json.loads(data) if code == 200 else []
+    except ValueError:
+        return False
+    return any(isinstance(a, dict) and str(a.get("address", "")).lower() == agent.lower() for a in agents or [])
+
+
+def live_request(kind: str, body, live_db: str, post=None) -> tuple[int, dict]:
+    """Echtgeld-Schalter für das Dashboard. Schreibt nur Schalter in data/live.db; der Bot
+    liest sie beim nächsten Durchlauf (alle 30 s). Kein Netzwerk, keine Schlüssel nach außen."""
+    from tradingbot import hyperliquid as hl
+
+    if not isinstance(body, dict):
+        return 400, {"error": "Anfrage nicht erlaubt"}
+    acc = PaperAccount(live_db, 0.0, hl.FEE_PCT)
+    try:
+        if kind == "agent":
+            return 200, {"agent": hl.agent_address(live_db, create=True)}
+        if kind == "start":
+            user = body.get("user")
+            if set(body) != {"user"} or not _is_address(user):
+                return 400, {"error": "Anfrage nicht erlaubt"}
+            agent = hl.agent_address(live_db)
+            if not agent or not agent_approved(user, agent, hl.network(), post):
+                return 400, {"error": "Bitte zuerst den Bot freigeben (Schritt 1)."}
+            old = acc.get_state("live:account")
+            if old and old.lower() != user.lower() and acc.positions():
+                return 400, {"error": "Es sind noch Positionen einer anderen Wallet offen."}
+            acc.set_state("live:account", user)
+            acc.set_state("live:enabled", "1")
+        elif kind == "stop":
+            acc.set_state("live:enabled", "0")
+        elif kind == "panic":
+            acc.set_state("live:enabled", "0")
+            acc.set_state("live:panic", "1")
+        elif kind != "status":
+            return 404, {"error": "unbekannt"}
+        trades = acc.trades()
+        return 200, {
+            "network": hl.network(), "agent": hl.agent_address(live_db), "account": acc.get_state("live:account"),
+            "enabled": acc.get_state("live:enabled") == "1", "panic": acc.get_state("live:panic") == "1",
+            "positions": [{"coin": c, "side": p.side, "entry": p.entry, "stop": p.stop, "qty": p.qty,
+                           "opened_at": p.opened_at, "strategy": p.strategy} for c, p in acc.positions().items()],
+            "trades": [{k: t[k] for k in ("coin", "side", "entry", "exit", "pnl", "closed_at", "reason")} for t in trades[-10:][::-1]],
+            "pnl": round(sum(t["pnl"] for t in trades), 2), "count": len(trades),
+        }
+    finally:
+        acc.close_db()
 
 
 # Ein- und Auszahlen per Klick über Relay (BNB Chain <-> Hyperliquid), nur Echtgeld
@@ -1233,7 +1306,7 @@ function loadChain() {
 }
 function load() {
   if (!addr) return;
-  loadChain();
+  loadChain(); liveLoad();
   api('info', { type: 'clearinghouseState', user: addr }).then(function (s) {
     var m = s.marginSummary || {}, pos = (s.assetPositions || []).map(function (p) { return p.position; });
     var upnl = pos.reduce(function (t, p) { return t + Number(p.unrealizedPnl || 0); }, 0);
@@ -1360,6 +1433,69 @@ async function relayGo() {
   } catch (e) { rmsg('Abgebrochen: ' + (e.message || e), true); }
   $('r-go').disabled = false;
 }
+// ---- Echtgeld-Handel: Bot freigeben, starten, stoppen, Not-Aus ----
+var LV = null;
+function lmsg(t, bad) { var m = $('l-msg'); m.textContent = t; m.className = 'w-msg ' + (bad ? 'down' : 'up'); }
+function short(a) { return a ? a.slice(0, 6) + '…' + a.slice(-4) : ''; }
+function liveLoad() {
+  return Promise.all([api('live/status', {}), api('info', { type: 'extraAgents', user: addr }).catch(function () { return []; })])
+    .then(function (r) {
+      LV = r[0];
+      LV.approved = !!LV.agent && (r[1] || []).some(function (a) { return String(a.address).toLowerCase() === LV.agent.toLowerCase(); });
+      liveRender();
+    }).catch(function (e) { $('l-body').innerHTML = '<p class="muted" style="margin:0">Echtgeld-Status gerade nicht abrufbar.</p>'; });
+}
+function liveRender() {
+  var s = LV, other = s.account && addr && s.account.toLowerCase() !== addr.toLowerCase();
+  var on = s.enabled && !other;
+  var h = '<div class="l-head"><span class="l-pill ' + (on ? 'on' : '') + '">' + (on ? 'Läuft' : 'Aus') + '</span>' +
+    '<span class="muted">' + (on ? 'Der Bot handelt mit deinem Guthaben auf Hyperliquid, mit denselben Regeln wie das Übungskonto.'
+      : 'Der Bot handelt nur auf dem Übungskonto.') + '</span></div>';
+  h += '<ol class="l-steps"><li class="' + (s.approved ? 'done' : '') + '"><b>Bot freigeben</b> · ' +
+    (s.approved ? 'erledigt (Bot ' + esc(short(s.agent)) + ', darf nur handeln, nie auszahlen)'
+      : '<button class="btn btn-sm" type="button" onclick="liveApprove()">In der Wallet freigeben</button>') + '</li>';
+  h += '<li class="' + (on ? 'done' : '') + '"><b>Echtgeld-Handel</b> · ' + (on
+      ? '<button class="btn btn-sm btn-ghost" type="button" onclick="liveSwitch(\'stop\')">Ausschalten</button>'
+      : '<button class="btn btn-sm" type="button" onclick="liveSwitch(\'start\')"' + (s.approved ? '' : ' disabled') + '>Einschalten</button>') + '</li></ol>';
+  if (other) h += '<p class="down" style="margin:6px 0">Eingeschaltet für eine andere Wallet (' + esc(short(s.account)) + ').</p>';
+  var rows = s.positions.map(function (p) {
+    return '<tr><td>' + esc(p.coin) + '</td><td class="' + (p.side > 0 ? 'up' : 'down') + '">' + (p.side > 0 ? 'Long' : 'Short') +
+      '</td><td>' + money(p.entry) + '</td><td>' + money(p.stop) + '</td><td>' + money(p.entry * p.qty) + ' $</td></tr>'; }).join('');
+  h += '<h3 class="w-sub">Offene Echtgeld-Positionen</h3>' + (rows ? '<table><tr><th>Coin</th><th>Seite</th><th>Einstieg</th><th>Stop</th><th>Größe</th></tr>' + rows + '</table>'
+    : '<p class="muted" style="margin:0">Keine.</p>');
+  if (s.positions.length) h += '<p style="margin:10px 0 0"><button class="btn btn-sm btn-danger" type="button" onclick="livePanic()">Not-Aus: alles schließen</button></p>';
+  if (s.count) h += '<h3 class="w-sub">Echtgeld-Trades</h3><p style="margin:0 0 6px">' + s.count + (s.count === 1 ? ' Trade' : ' Trades') + ', Ergebnis <b class="' + (s.pnl >= 0 ? 'up' : 'down') + '">' + signed(s.pnl) + ' $</b></p>' +
+    '<table><tr><th>Coin</th><th>Seite</th><th>Kurs</th><th>Ergebnis</th></tr>' + s.trades.map(function (t) {
+      return '<tr><td>' + esc(t.coin) + '</td><td>' + (t.side > 0 ? 'Long' : 'Short') + '</td><td>' + money(t.entry) + ' → ' + money(t.exit) +
+        '</td><td class="' + (t.pnl > 0 ? 'up' : 'down') + '">' + signed(t.pnl) + ' $</td></tr>'; }).join('') + '</table>';
+  $('l-body').innerHTML = h;
+}
+async function liveApprove() {
+  try {
+    var st = await api('live/agent', {});
+    var cid = parseInt(await window.ethereum.request({ method: 'eth_chainId' }), 16), nonce = Date.now();
+    var m = { hyperliquidChain: NET === 'mainnet' ? 'Mainnet' : 'Testnet', agentAddress: st.agent, agentName: 'tradingbot', nonce: nonce };
+    lmsg('Bitte in der Wallet unterschreiben … (erlaubt dem Bot nur das Handeln)');
+    var sig = await signTyped({ name: 'HyperliquidSignTransaction', version: '1', chainId: cid, verifyingContract: '0x0000000000000000000000000000000000000000' },
+      { 'HyperliquidTransaction:ApproveAgent': [{ name: 'hyperliquidChain', type: 'string' }, { name: 'agentAddress', type: 'address' },
+        { name: 'agentName', type: 'string' }, { name: 'nonce', type: 'uint64' }] }, 'HyperliquidTransaction:ApproveAgent', m);
+    var r = await api('exchange', { action: Object.assign({ type: 'approveAgent', signatureChainId: hexChain(cid) }, m), nonce: nonce, signature: splitSig(sig) });
+    if (!r || r.status !== 'ok') throw new Error(JSON.stringify(r && r.response || r));
+    lmsg('Bot freigegeben. Er kann jetzt handeln, aber nichts auszahlen.'); liveLoad();
+  } catch (e) { lmsg('Freigabe abgebrochen: ' + (e.message || e), true); }
+}
+function liveSwitch(kind) {
+  if (kind === 'start' && !confirm('Echtgeld-Handel einschalten? Der Bot handelt dann mit deinem Guthaben auf Hyperliquid.')) return;
+  api('live/' + kind, kind === 'start' ? { user: addr } : {}).then(function (s) {
+    lmsg(kind === 'start' ? 'Eingeschaltet. Der Bot prüft alle 30 Sekunden und handelt beim nächsten Signal.'
+      : 'Ausgeschaltet. Keine neuen Trades; offene Positionen betreut der Bot weiter bis zum Stop.'); liveLoad();
+  }).catch(function (e) { lmsg(e.message || e, true); });
+}
+function livePanic() {
+  if (!confirm('Not-Aus: Alle Echtgeld-Positionen sofort zum Marktpreis schließen und den Handel ausschalten?')) return;
+  api('live/panic', {}).then(function () { lmsg('Not-Aus gesendet. Der Bot schließt alles innerhalb von ca. 30 Sekunden.'); setTimeout(liveLoad, 35000); })
+    .catch(function (e) { lmsg(e.message || e, true); });
+}
 try { var saved = localStorage.getItem('hl_addr'); if (saved) show(saved); } catch (e) {}
 if (window.ethereum && window.ethereum.on) window.ethereum.on('accountsChanged', function (a) { if (a && a[0]) show(a[0]); else disconnect(); });
 """
@@ -1402,6 +1538,8 @@ Nur du kannst auszahlen, der Bot kann nur handeln. Dein Schlüssel bleibt in dei
 <div class="kpi" title="So viel kannst du abheben, ohne offene Trades zu gefährden: Sie behalten doppelt so viel Sicherheit, wie Hyperliquid verlangt. „Max.“ ist die technische Obergrenze."><div class="v" id="w-free">–</div><div class="l">Sicher auszahlbar · max. <span id="w-max">–</span></div></div>
 <div class="kpi"><div class="v" id="w-upnl">–</div><div class="l">Offene Positionen</div></div>
 <div class="kpi"><div class="v" id="w-npos">–</div><div class="l">Anzahl Positionen</div></div></section>
+<section class="card" id="live"><h2>Echtgeld-Handel</h2><div id="l-body"><p class="muted" style="margin:0">Erst Wallet verbinden.</p></div>
+<p id="l-msg" class="w-msg"></p></section>
 <section class="card"><h2>Ein- und Auszahlungen</h2>{relay}
 <h3 class="w-sub">Verlauf</h3><div id="w-ledger"><p class="muted" style="margin:0">Erst Wallet verbinden.</p></div></section>"""
     return _page(title, "wallet", body, script=_WALLET_JS, reload=False)
@@ -1543,7 +1681,8 @@ def _safe_next(url: str) -> str:
 
 def serve(db_path: str | None = None, start_equity: float = 10_000.0, fee_pct: float = 0.1, port: int = 8080,
           password: str | None = None, title: str = "Trading-Bot", host: str = "127.0.0.1",
-          coins: list[str] | None = None, timeframe: str = "1h", bots: list[Bot] | None = None) -> None:
+          coins: list[str] | None = None, timeframe: str = "1h", bots: list[Bot] | None = None,
+          live_db: str = "data/live.db") -> None:
     """Mit bots: mehrere Konten in einem Dashboard, oben umschaltbar."""
     password = password if password is not None else os.getenv("DASHBOARD_PASSWORD")
     bots = bots or [Bot("main", title, title, db_path, start_equity, fee_pct, coins or [], timeframe)]
@@ -1572,6 +1711,8 @@ def serve(db_path: str | None = None, start_equity: float = 10_000.0, fee_pct: f
 
         def do_POST(self):  # noqa: N802
             path = urlparse(self.path).path
+            if "/hl/live/" in path and path.rsplit("/", 1)[1] in ("status", "agent", "start", "stop", "panic"):
+                return self._hyperliquid("live-" + path.rsplit("/", 1)[1])
             if "/hl/relay/" in path and path.rsplit("/", 1)[1] in ("quote", "post", "status"):
                 return self._hyperliquid("relay-" + path.rsplit("/", 1)[1])
             if path.endswith("/hl/info") or path.endswith("/hl/exchange") or path.endswith("/hl/balances"):
@@ -1600,6 +1741,9 @@ def serve(db_path: str | None = None, start_equity: float = 10_000.0, fee_pct: f
                 body = json.loads(self.rfile.read(min(length, 8192)) or b"null")
             except ValueError:
                 body = None
+            if kind.startswith("live-"):
+                code, out = live_request(kind[5:], body, live_db)
+                return self._send(code, json.dumps(out), "application/json")
             if kind.startswith("relay-"):
                 code, data = relay_request(kind[6:], body)
                 return self._send(code, data.decode("utf-8", "replace"), "application/json")
@@ -1608,7 +1752,11 @@ def serve(db_path: str | None = None, start_equity: float = 10_000.0, fee_pct: f
                     return self._send(400, '{"error": "Anfrage nicht erlaubt"}', "application/json")
                 return self._send(200, json.dumps(chain_balances(body["user"])), "application/json")
             net = hl_network()
-            ok = hl_info_allowed(body) if kind == "info" else hl_exchange_allowed(body, net)
+            if kind == "info":
+                ok = hl_info_allowed(body)
+            else:
+                from tradingbot.hyperliquid import agent_address
+                ok = hl_exchange_allowed(body, net, agent_address(live_db))
             if not ok:
                 return self._send(400, '{"error": "Anfrage nicht erlaubt"}', "application/json")
             code, data = hl_post("/" + kind, body, net)

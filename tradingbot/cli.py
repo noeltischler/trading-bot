@@ -145,7 +145,9 @@ def cmd_run(args) -> int:
         handlers=[logging.StreamHandler(), logging.FileHandler(log_file(args.config), encoding="utf-8")],
     )
     account = PaperAccount(cfg.paper_database, cfg.start_equity, cfg.fee_pct)
-    run_forever(cfg, _market(cfg.exchange), account, chart=CandleStore(cfg.paper_database))
+    from tradingbot.hyperliquid import LiveAccount
+    live = LiveAccount(cfg.live_database)  # tut nichts, bis Echtgeld im Dashboard eingeschaltet ist
+    run_forever(cfg, _market(cfg.exchange), account, chart=CandleStore(cfg.paper_database), live=live)
     return 0
 
 
@@ -185,7 +187,7 @@ def cmd_dashboard(args) -> int:
             continue
         bots.append(Bot(Path(path).stem.lower(), label, cfg.name, cfg.paper_database, cfg.start_equity,
                         cfg.fee_pct, list(cfg.symbols), cfg.timeframe))
-    serve(port=args.port, host=args.host, bots=bots)
+    serve(port=args.port, host=args.host, bots=bots, live_db=load_config(args.config).live_database)
     return 0
 
 
