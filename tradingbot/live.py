@@ -197,6 +197,8 @@ def live_round(cfg: Config, market, live, notify_fn=None, fear_greed=fear_greed_
     if not enabled and not mine:
         return
     live.address = live.get_state("live:account") or live.address
+    if live.get_state("live:start_equity") is None:
+        live.set_state("live:start_equity", f"{live.balance:.2f}")
     for coin, pos, price, pnl in live.sync(cfg.symbols):
         log.info("Echtgeld %s %s an der Börse gestoppt bei %.4f, Ergebnis %+.2f", coin, SIDE_NAME[pos.side], price, pnl)
         tell(*notify.closed_text(coin, pos.side == LONG, price, pnl, "stop", live.balance))
@@ -206,6 +208,8 @@ def live_round(cfg: Config, market, live, notify_fn=None, fear_greed=fear_greed_
 
     step(cfg, market, live, None, fear_greed=fear_greed, notify_fn=wrapped if notify_fn else None,
          allow_entries=enabled)
+    live._state_cache = None
+    live.set_state("live:balance", f"{live.balance:.2f}")  # fürs Dashboard (Echtgeld-Ansicht)
 
 
 def run_forever(cfg: Config, market, account: PaperAccount, poll_seconds: int = 30,

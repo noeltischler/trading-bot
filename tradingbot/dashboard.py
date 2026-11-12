@@ -555,7 +555,7 @@ def bars_svg(buckets: list[tuple[str, float, int]], width: int = 520, height: in
         if v == 0.0 or abs(v) > 0:
             y = sy(v)
             out.append(f'<line x1="{left}" x2="{left + pw}" y1="{y:.1f}" y2="{y:.1f}" class="grid"/>'
-                       f'<text x="{left + pw + 4}" y="{y + 4:.1f}">{_signed(v, 0)} $</text>')
+                       f'<text x="{left + pw + 4}" y="{y + 4:.1f}">{_signed(v, 0 if abs(hi - lo) >= 20 else 2)} $</text>')
     zero = sy(0.0)
     for i, (label, v, count) in enumerate(buckets):
         x = left + i * slot + (slot - bw) / 2
@@ -677,7 +677,9 @@ def open_pnls(account: PaperAccount, positions: dict) -> dict:
     return out
 
 
-def render(account: PaperAccount, title: str = "Trading-Bot", period: str | None = None, now: int | None = None) -> str:
+def render(account: PaperAccount, title: str = "Trading-Bot", period: str | None = None, now: int | None = None,
+           extras: bool = True) -> str:
+    """extras=False (Echtgeld-Ansicht): ohne Marktlage, Benachrichtigungen und Nachweise."""
     cash, start = account.balance, account.start_equity
     trades = account.trades()
     positions = account.positions()
@@ -698,7 +700,7 @@ def render(account: PaperAccount, title: str = "Trading-Bot", period: str | None
     for key, (name, secs, _) in PERIODS.items():
         pnl = sum(t["pnl"] for t in trades if now - secs <= t["closed_at"] <= now)
         tiles += (f'<a href="/?p={key}" class="{"on" if key == period else ""}"><div class="l">{name}</div>'
-                  f'<div class="v {"up" if pnl > 0 else "down" if pnl < 0 else ""}">{_signed(pnl, 0)} $</div></a>')
+                  f'<div class="v {"up" if pnl > 0 else "down" if pnl < 0 else ""}">{_signed(pnl, 0 if abs(pnl) >= 100 else 2)} $</div></a>')
 
     before = sum(t["pnl"] for t in trades if t["closed_at"] < since)
     points = [(since, start + before)] + [(t["closed_at"], t["balance"]) for t in in_period]
@@ -738,9 +740,7 @@ def render(account: PaperAccount, title: str = "Trading-Bot", period: str | None
 <section class="card"><h2>Offene Positionen</h2><table><tr><th>Coin</th><th>Seite</th><th>Jetzt</th><th>Einstieg</th><th>Stop</th><th>Seit</th><th>Strategie</th></tr>{pos_rows}</table>
 <p class="legend">„Jetzt“ = Ergebnis zum aktuellen Kurs. Gesamt = Kapital + offene Positionen.</p></section>
 <section class="card"><h2>Letzte Trades</h2>{_trade_table(trades[-10:])}<p style="margin:10px 0 0"><a href="/trades">Alle Trades →</a></p></section>
-{_market_html(account, now)}
-{_notify_html(account)}
-<section class="card"><h2>Blockchain-Nachweise</h2><table><tr><th>Tag</th><th>Fingerabdruck</th><th>Transaktion</th></tr>{anchor_rows}</table></section>"""
+{_market_html(account, now) + _notify_html(account) + '<section class="card"><h2>Blockchain-Nachweise</h2><table><tr><th>Tag</th><th>Fingerabdruck</th><th>Transaktion</th></tr>' + anchor_rows + '</table></section>' if extras else '<p class="legend">Echtgeld auf Hyperliquid. Kapital = Guthaben ohne offene Positionen, vom Bot alle 30 Sekunden aktualisiert. Ein- und Auszahlungen verändern es auch.</p>'}"""
     return _page(title, "overview", body)
 
 
@@ -1549,6 +1549,34 @@ Nur du kannst auszahlen, der Bot kann nur handeln. Dein Schlüssel bleibt in dei
     return _page(title, "wallet", body, script=_WALLET_JS, reload=False)
 
 
+class LiveView(PaperAccount):
+    """Echtgeld-Konto (data/live.db) zum Anzeigen: Trades und Positionen von dort,
+    Kontostand vom Bot gespeichert, Kurse und Marktdaten vom Übungskonto."""
+
+    def __init__(self, live_db: str, paper_db: str):
+        from tradingbot.hyperliquid import FEE_PCT
+
+        super().__init__(live_db, 0.0, FEE_PCT)
+        self.paper = PaperAccount(paper_db)
+
+    @property
+    def balance(self) -> float:
+        raw = PaperAccount.get_state(self, "live:balance")
+        return float(raw) if raw else 0.0
+
+    @property
+    def start_equity(self) -> float:
+        raw = PaperAccount.get_state(self, "live:start_equity")
+        return float(raw) if raw else self.balance
+
+    def get_state(self, key: str) -> str | None:
+        return PaperAccount.get_state(self, key) if key.startswith("live:") else self.paper.get_state(key)
+
+    def close_db(self) -> None:
+        self.paper.close_db()
+        super().close_db()
+
+
 @dataclass
 class Bot:
     """Ein Konto im Dashboard. Der erste Bot liegt unter /, jeder weitere unter /<slug>/."""
@@ -1562,6 +1590,8 @@ class Bot:
     timeframe: str = "1h"
     timeframes: dict[str, str] = field(default_factory=dict)  # Coin → Zeitrahmen, wenn er abweicht
     aliases: list[str] = field(default_factory=list)          # alte Adressen, z. B. /gold
+    live: bool = False        # Echtgeld-Ansicht (db_path = data/live.db)
+    candles_db: str = ""      # Kerzen fürs Chart, wenn nicht in db_path (Echtgeld: vom Übungskonto)
 
     def prefix(self, first: bool) -> str:
         return "" if first else f"/{self.slug}"
@@ -1607,10 +1637,10 @@ def page_for(bots: list[Bot], bot: Bot, path: str, query: dict) -> tuple[str, st
     def arg(name):
         return query.get(name, [None])[0]
 
-    account = PaperAccount(bot.db_path, bot.start_equity, bot.fee_pct)
+    account = LiveView(bot.db_path, bot.candles_db) if bot.live else PaperAccount(bot.db_path, bot.start_equity, bot.fee_pct)
     try:
         if path == "/chart":
-            candles = CandleStore(bot.db_path)
+            candles = CandleStore(bot.candles_db or bot.db_path)
             try:
                 trade = arg("trade")
                 page = render_chart(account, candles, bot.coins, bot.timeframe, arg("coin"), arg("range"), bot.title,
@@ -1626,9 +1656,11 @@ def page_for(bots: list[Bot], bot: Bot, path: str, query: dict) -> tuple[str, st
             return (trades_csv(filter_trades(account.trades(), arg("coin"), arg("side"), arg("result"), arg("p"))),
                     "text/csv; charset=utf-8")
         else:
-            page = render(account, bot.title, arg("p"))
+            page = render(account, bot.title, arg("p"), extras=not bot.live)
     finally:
         account.close_db()
+    if bot.live:
+        page = page.replace("Live · Übungskonto", "Echtgeld · Hyperliquid", 1)
     prefix = bot.prefix(bot is bots[0])
     if prefix:
         page = page.replace('href="/', f'href="{prefix}/').replace("href='/", f"href='{prefix}/")
