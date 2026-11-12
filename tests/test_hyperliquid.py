@@ -169,3 +169,33 @@ def test_dashboard_only_approves_this_servers_agent(tmp_path):
     code, st = live_request("panic", {}, db)
     assert st["panic"] and not st["enabled"]
     assert live_request("start", {"user": user, "x": 1}, db, post=yes)[0] == 400
+
+
+def test_dashboard_echtgeld_view_reads_live_trades(tmp_path):
+    from tradingbot.dashboard import Bot, page_for, route
+    from tradingbot.paper import PaperAccount
+
+    paper, live = str(tmp_path / "paper.db"), str(tmp_path / "live.db")
+    p = PaperAccount(paper)
+    p.set_state("price:ETH", "105:0")
+    p.close_db()
+    acc = PaperAccount(live, 0.0, hl.FEE_PCT)
+    acc.set_state("live:balance", "102.86")
+    acc.set_state("live:start_equity", "100")
+    acc.open(Position.open("BTC", LONG, 100.0, 100.0, 0.75, 3.0, 0))
+    acc.close("BTC", 103.0, "signal", when=10)
+    acc.open(Position.open("ETH", SHORT, 100.0, 100.0, 0.75, 3.0, 0))
+    acc.close_db()
+    bots = [Bot("config", "Übungskonto", "Trading-Bot", paper, 10000, 0.1, ["BTC", "ETH"], "4h"),
+            Bot("echtgeld", "Echtgeld", "Trading-Bot", live, 0.0, 0.045, ["BTC", "ETH"], "4h", live=True, candles_db=paper)]
+    assert route(bots, "/echtgeld/trades") == (bots[1], "/trades")
+    page, _ = page_for(bots, bots[1], "/", {})
+    assert "Echtgeld · Hyperliquid" in page and "102,86" in page and "Marktlage" not in page
+    assert '<a href="/echtgeld" class="on">Echtgeld</a>' in page and "/echtgeld/trades" in page
+    assert "ETH" in page  # offene Position mit Kurs vom Übungskonto
+    page, _ = page_for(bots, bots[1], "/trades", {})
+    assert "BTC" in page
+    page, _ = page_for(bots, bots[1], "/chart", {"coin": ["BTC"]})
+    assert "BTC · 4h-Kerzen" in page
+    page, _ = page_for(bots, bots[0], "/", {})
+    assert "Live · Übungskonto" in page and "Marktlage" in page

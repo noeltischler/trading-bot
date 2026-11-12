@@ -187,7 +187,13 @@ def cmd_dashboard(args) -> int:
             continue
         bots.append(Bot(Path(path).stem.lower(), label, cfg.name, cfg.paper_database, cfg.start_equity,
                         cfg.fee_pct, list(cfg.symbols), cfg.timeframe))
-    serve(port=args.port, host=args.host, bots=bots, live_db=load_config(args.config).live_database)
+    live_db = load_config(args.config).live_database
+    if bots:  # Echtgeld-Ansicht: gleiche Coins, Trades aus data/live.db, Kerzen vom Übungskonto
+        main = bots[0]
+        main.label = "Übungskonto"
+        bots.append(Bot("echtgeld", "Echtgeld", main.title, live_db, 0.0, 0.045, list(main.coins), main.timeframe,
+                        dict(main.timeframes), live=True, candles_db=main.db_path))
+    serve(port=args.port, host=args.host, bots=bots, live_db=live_db)
     return 0
 
 
