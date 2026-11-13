@@ -1725,8 +1725,11 @@ def login_page(title: str, error: bool = False, next_url: str = "/") -> str:
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>{_CSS}
 body.lp {{ padding-left:0 !important }}
-body.lp main {{ min-height:100vh; min-height:100dvh; box-sizing:border-box; display:flex; align-items:center; justify-content:center; padding:16px }}
+/* waagerecht mittig, senkrecht in der Mitte der oberen Bildschirmhälfte */
+body.lp main {{ max-width:none; min-height:100vh; min-height:100dvh; box-sizing:border-box; padding:0 16px;
+  display:grid; grid-template-rows:50vh 1fr; grid-template-rows:50dvh 1fr; justify-items:center; align-items:center }}
 .login {{ width:100%; max-width:380px; margin:0 }}
+@media (max-height:560px) {{ body.lp main {{ grid-template-rows:auto; align-items:start; padding-top:16px }} }}
 .login input {{ width:100%; box-sizing:border-box; font:inherit; font-size:16px; padding:12px 14px; border-radius:12px; border:0;
   outline:1px solid var(--line); background:var(--glass); color:var(--text); margin:0 0 12px }}
 .login button {{ width:100%; font:inherit; font-weight:600; font-size:16px; padding:12px; border:0; border-radius:12px; color:#fff; cursor:pointer;
