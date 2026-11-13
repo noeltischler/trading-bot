@@ -1724,12 +1724,14 @@ def login_page(title: str, error: bool = False, next_url: str = "/") -> str:
 <title>Anmelden · {html.escape(title)}</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>{_CSS}
-.login {{ max-width:380px; margin:12vh auto 0 }}
+body.lp {{ padding-left:0 !important }}
+body.lp main {{ min-height:100vh; min-height:100dvh; box-sizing:border-box; display:flex; align-items:center; justify-content:center; padding:16px }}
+.login {{ width:100%; max-width:380px; margin:0 }}
 .login input {{ width:100%; box-sizing:border-box; font:inherit; font-size:16px; padding:12px 14px; border-radius:12px; border:0;
   outline:1px solid var(--line); background:var(--glass); color:var(--text); margin:0 0 12px }}
 .login button {{ width:100%; font:inherit; font-weight:600; font-size:16px; padding:12px; border:0; border-radius:12px; color:#fff; cursor:pointer;
   background:linear-gradient(90deg,#4f46e5,#06b6d4) }}
-</style></head><body><main>
+</style></head><body class="lp"><main>
 <section class="card login">
 <header class="top"><div class="logo">{_LOGO}</div><div><h1>{html.escape(title)}</h1><div class="sub">Bitte anmelden</div></div></header>
 {msg}<form method="post" action="/login"><input type="hidden" name="next" value="{html.escape(next_url)}">
