@@ -46,7 +46,7 @@ def test_gold_config_loads():
     assert cfg.name == "Gold-Bot" and cfg.timeframe == "1d"
     assert cfg.symbols == {"GOLD": "PAXG/USD"}
     (p,) = cfg.strategy
-    assert p.kind == "breakout" and p.lookback == 20 and p.trend == 100 and not p.allow_short
+    assert p.kind == "breakout" and p.lookback == 5 and p.trend == 100 and not p.allow_short
     # nur Long: auch ein starker Abwärtsausbruch gibt kein Short-Signal
     import numpy as np
     import pandas as pd
