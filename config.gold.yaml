@@ -8,6 +8,10 @@
 #   Zum Vergleich: Gold nur halten brachte im Test +49,9 % (starker Gold-Aufschwung).
 # Der Bot handelt selten und nur, wenn Gold ein neues 20-Tage-Hoch über seiner
 # EMA 100 macht. Kein Versprechen für die Zukunft.
+#
+# 19.11.2026: Nachtest mit echten Tageskerzen (Hoch/Tief, XAUT 2020-2026):
+#   Ausbruch 20: bis 2023 -2,1 %, ab 2024 +39,6 %
+#   Ausbruch 5:  bis 2023 +2,5 %, ab 2024 +44,3 %  (8-10 Trades/Jahr)  -> umgestellt
 
 name: Gold-Bot
 exchange: kraken
@@ -33,8 +37,8 @@ risk:
   event_pause_hours: 4
 
 strategy:
-  - kind: breakout            # Ausbruch über das Hoch der letzten 20 Tage
-    lookback: 20
+  - kind: breakout            # Ausbruch über das Hoch der letzten 5 Tage
+    lookback: 5
     trend: 100                # nur über der EMA 100 (Aufwärtstrend)
     allow_short: false        # Gold nur kaufen, nicht shorten
 
