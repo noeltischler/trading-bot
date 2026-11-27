@@ -81,6 +81,9 @@ class StrategyParams:
     rsi_confirm: bool = False    # Long nicht bei RSI > rsi_max_long, Short nicht bei RSI < rsi_min_short
     btc_filter: int = 0          # Long nur, wenn Bitcoin über seiner EMA dieser Länge liegt, Short nur darunter
                                  # (z. B. 200). Braucht die Spalte btc_close, siehe with_btc.
+    range_adx: float = 0.0       # Seitwärts-Erkennung: liegt der ADX des Coins unter diesem Wert (z. B. 20),
+                                 # hat der Markt keinen Trend. Dann gelten Trend-, EMA- und BTC-Filter nicht,
+                                 # die Strategie darf in beide Richtungen handeln (0 = aus).
     fg_mode: str = ""            # Fear & Greed: "" aus, "contrarian" (bei extremer Angst kein Short,
                                  # bei extremer Gier kein Long) oder "follow" (umgekehrt).
                                  # Braucht die Spalte fear_greed, siehe sentiment.with_fear_greed.
@@ -93,7 +96,7 @@ class StrategyParams:
         if self.fg_mode not in ("", "contrarian", "follow"):
             raise ValueError("fg_mode muss leer, 'contrarian' oder 'follow' sein.")
 
-    def label(self) -> str:
+    def _name(self) -> str:
         if self.kind == "ema":
             return f"EMA {self.fast}/{self.slow}"
         if self.kind == "breakout":
@@ -114,6 +117,10 @@ class StrategyParams:
             return f"Holy Grail {self.fast}"
         period = "" if self.rsi_period == 14 else f"-{self.rsi_period}"
         return f"RSI{period} {self.rsi_low:g}/{self.rsi_high:g}"
+
+    def label(self) -> str:
+        name = self._name()
+        return f"{name} ~{self.range_adx:g}" if self.range_adx > 0 else name
 
 
 def _rising(cond: pd.Series) -> pd.Series:
@@ -286,6 +293,9 @@ def signals(df: pd.DataFrame, p: "StrategyParams | tuple | list | None" = None) 
     close = df["close"]
     trend = ema(close, p.trend)
     up, down = close > trend, close < trend
+    # Seitwärtsphase (schwacher Trend): Richtungsfilter aufheben, beide Seiten erlaubt
+    side = (adx(df) < p.range_adx).fillna(False) if p.range_adx > 0 else pd.Series(False, index=df.index)
+    up, down = up | side, down | side
 
     if p.kind == "ema":
         fast, slow, r = ema(close, p.fast), ema(close, p.slow), rsi(close, p.rsi_period)
@@ -356,7 +366,7 @@ def signals(df: pd.DataFrame, p: "StrategyParams | tuple | list | None" = None) 
 
     if p.ema_filter > 0:
         e = ema(close, p.ema_filter)
-        long_, short = long_ & (close > e), short & (close < e)
+        long_, short = long_ & ((close > e) | side), short & ((close < e) | side)
     if p.adx_min > 0:
         strong = adx(df) > p.adx_min
         long_, short = long_ & strong, short & strong
@@ -371,7 +381,7 @@ def signals(df: pd.DataFrame, p: "StrategyParams | tuple | list | None" = None) 
             raise ValueError("btc_filter braucht Bitcoin-Kurse (Spalte btc_close, siehe with_btc).")
         b = df["btc_close"]
         e = ema(b, p.btc_filter)
-        long_, short = long_ & (b > e), short & (b < e)
+        long_, short = long_ & ((b > e) | side), short & ((b < e) | side)
     if p.fg_mode:
         if "fear_greed" not in df:
             raise ValueError("fg_mode braucht den Fear & Greed Index (Spalte fear_greed).")

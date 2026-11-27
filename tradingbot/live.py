@@ -222,7 +222,11 @@ def live_round(cfg: Config, market, live, notify_fn=None, fear_greed=fear_greed_
 
 
 def run_forever(cfg: Config, market, account: PaperAccount, poll_seconds: int = 30,
-                chart: CandleStore | None = None, live=None) -> None:
+                chart: CandleStore | None = None, live=None, learning: bool = False) -> None:
+    """learning: Einstellungen aus dem Selbst-Lernen nutzen (tradingbot/learn.py), getrennt
+    für Übungskonto und Echtgeld. Ohne gelernte Einstellung gilt config.yaml."""
+    from tradingbot import learn
+
     log.info("%s gestartet: %s, %s, Coins: %s, Kontostand %.2f",
              cfg.name, market.id, cfg.timeframe, ", ".join(cfg.symbols), account.balance)
     last_news = 0.0
@@ -235,11 +239,13 @@ def run_forever(cfg: Config, market, account: PaperAccount, poll_seconds: int = 
     while True:
         try:
             loop_market = LoopMarket(market)
-            step(cfg, loop_market, account, chart, notify_fn=notify.send if cfg.notify else None)
+            paper_cfg = learn.effective(cfg, account, "paper") if learning else cfg
+            step(paper_cfg, loop_market, account, chart, notify_fn=notify.send if cfg.notify else None)
             anchor_due_days(account)
             if live is not None:
                 try:
-                    live_round(cfg, loop_market, live, notify.send if cfg.notify else None)
+                    live_cfg = learn.effective(cfg, account, "live") if learning else cfg
+                    live_round(live_cfg, loop_market, live, notify.send if cfg.notify else None)
                 except Exception:  # Fehler beim Echtgeld dürfen das Übungskonto nicht stören
                     log.exception("Fehler im Echtgeld-Durchlauf, neuer Versuch in %s s", poll_seconds)
             if time.time() - last_news > 15 * 60:  # Schlagzeilen alle 15 Minuten, nur zum Beobachten

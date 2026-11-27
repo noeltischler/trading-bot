@@ -247,6 +247,10 @@ svg.candles .entry { stroke:var(--text); stroke-dasharray:6 3; stroke-width:1; o
 tr.hl td { background:rgba(79,70,229,.08) }
 svg.candles .m-exit { fill:var(--solid); stroke:var(--text); stroke-width:2 }
 .legend { color:var(--muted); font-size:12.5px; margin-top:8px } .legend b.up, .legend b.down { font-weight:700 }
+.lbtn { font:inherit; font-size:13px; font-weight:600; padding:6px 12px; border:0; border-radius:10px; color:#fff; cursor:pointer;
+  background:linear-gradient(90deg,#4f46e5,#06b6d4); margin:6px 4px 0 0 }
+.lbtn.ghost { background:transparent; color:var(--text); outline:1px solid var(--line); padding:3px 10px; margin:0 }
+.lprop { margin:10px 0 4px; padding:10px 12px; border-radius:12px; outline:1px solid var(--line); background:var(--glass) }
 .periods { display:grid; grid-template-columns:repeat(5,1fr); gap:8px; margin-bottom:14px; animation:rise .5s .05s both }
 .periods a { display:block; text-align:center; padding:10px 4px; border-radius:14px; background:var(--card);
   -webkit-backdrop-filter:blur(12px); backdrop-filter:blur(12px); outline:1px solid var(--line); outline-offset:-1px;
@@ -667,6 +671,43 @@ def _notify_html(account: PaperAccount) -> str:
             f'<p class="muted" style="margin:8px 0 0">Der Kanalname ist wie ein Passwort: nicht weitergeben.</p></section>')
 
 
+def _learn_html(account: PaperAccount) -> str:
+    """Karte „Selbst lernen“: welche Einstellung gerade gilt, Vorschlag fürs Echtgeld, Verlauf."""
+    from tradingbot import learn
+
+    def get(key):
+        return learn._get(account, key)
+
+    def setting(slot, name):
+        s = get(slot)
+        if not s:
+            return f"<p style='margin:0 0 6px'><b>{name}:</b> Grundeinstellung</p>"
+        back = (f"<form method='post' action='/learn/revert-{slot}' style='display:inline'>"
+                f"<button class='lbtn ghost'>Zurückdrehen</button></form>")
+        return (f"<p style='margin:0 0 6px'><b>{name}:</b> {html.escape(s['label'])} "
+                f"<span class='muted'>seit {_fmt_time(s.get('since', 0))}</span> {back}</p>")
+
+    prop = get("proposal")
+    prop_html = ""
+    if prop:
+        prop_html = (f"<div class='lprop'><b>Vorschlag fürs Echtgeld:</b> {html.escape(prop['label'])}<br>"
+                     f"<span class='muted'>Seit dem Wechsel im Übungskonto {_signed(prop.get('paper_pnl', 0))} $, "
+                     f"die Echtgeld-Einstellung hätte {_signed(prop.get('live_pnl', 0))} $ gebracht.</span><br>"
+                     "<form method='post' action='/learn/accept' style='display:inline'><button class='lbtn'>Fürs Echtgeld übernehmen</button></form> "
+                     "<form method='post' action='/learn/reject' style='display:inline'><button class='lbtn ghost'>Ablehnen</button></form>"
+                     "<p class='legend' style='margin:6px 0 0'>Übernehmen geht nur mit verbundener Wallet, für die der Bot handelt.</p></div>")
+    last = get("last")
+    hist = list(reversed(learn.history(account)))[:5]
+    hist_html = "".join(f"<li><span class='muted'>{_fmt_time(h['time'])}</span> {html.escape(h['text'])}</li>" for h in hist)
+    return (f'<section class="card"><h2>Selbst lernen</h2>'
+            f"{setting('paper', 'Übungskonto')}{setting('live', 'Echtgeld')}{prop_html}"
+            + (f"<p class='legend' style='margin:8px 0 0'>Letzte Prüfung: {_fmt_time(last['time'])}</p>" if last else
+               "<p class='legend' style='margin:8px 0 0'>Der Bot prüft einmal pro Woche Varianten seiner Einstellung. "
+               "Besseres übernimmt er zuerst nur im Übungskonto, fürs Echtgeld fragt er dich.</p>")
+            + (f"<details style='margin-top:8px'><summary>Verlauf</summary><ul style='margin:6px 0 0;padding-left:18px;line-height:1.5'>{hist_html}</ul></details>" if hist else "")
+            + "</section>")
+
+
 def _last_price(account: PaperAccount, coin: str) -> float | None:
     """Letzter gespeicherter Kurs eines Coins (vom Bot alle paar Minuten aktualisiert)."""
     raw = account.get_state(f"price:{coin}")
@@ -748,7 +789,7 @@ def render(account: PaperAccount, title: str = "Trading-Bot", period: str | None
 <section class="card"><h2>Offene Positionen</h2><table><tr><th>Coin</th><th>Seite</th><th>Jetzt</th><th>Einstieg</th><th>Stop</th><th>Seit</th><th>Strategie</th></tr>{pos_rows}</table>
 <p class="legend">„Jetzt“ = Ergebnis zum aktuellen Kurs. Gesamt = Kapital + offene Positionen.</p></section>
 <section class="card"><h2>Letzte Trades</h2>{_trade_table(trades[-10:])}<p style="margin:10px 0 0"><a href="/trades">Alle Trades →</a></p></section>
-{_market_html(account, now) + _notify_html(account) + '<section class="card"><h2>Blockchain-Nachweise</h2><table><tr><th>Tag</th><th>Fingerabdruck</th><th>Transaktion</th></tr>' + anchor_rows + '</table></section>' if extras else '<p class="legend">Echtgeld auf Hyperliquid. Kapital = Guthaben ohne offene Positionen, vom Bot alle 30 Sekunden aktualisiert. Ein- und Auszahlungen verändern es auch.</p>'}"""
+{_learn_html(account) + _market_html(account, now) + _notify_html(account) + '<section class="card"><h2>Blockchain-Nachweise</h2><table><tr><th>Tag</th><th>Fingerabdruck</th><th>Transaktion</th></tr>' + anchor_rows + '</table></section>' if extras else '<p class="legend">Echtgeld auf Hyperliquid. Kapital = Guthaben ohne offene Positionen, vom Bot alle 30 Sekunden aktualisiert. Ein- und Auszahlungen verändern es auch.</p>'}"""
     return _page(title, "overview", body)
 
 
@@ -1695,6 +1736,32 @@ def page_for(bots: list[Bot], bot: Bot, path: str, query: dict, wallet: str | No
     return page, "text/html; charset=utf-8"
 
 
+def learn_action(action: str, paper_db: str, live_db: str, wallet: str | None) -> tuple[int, str]:
+    """Knöpfe der Karte „Selbst lernen“. Alles, was das Echtgeld betrifft, nur mit der
+    Wallet, für die der Bot handelt."""
+    from tradingbot import learn
+
+    if action in ("accept", "revert-live"):
+        live = PaperAccount(live_db, 0.0)
+        try:
+            owner = live.get_state("live:account")
+        finally:
+            live.close_db()
+        if owner and (not wallet or wallet.lower() != owner.lower()):
+            return 403, "Fürs Echtgeld bitte zuerst oben rechts die Wallet verbinden, für die der Bot handelt."
+    acc = PaperAccount(paper_db, 0.0)
+    try:
+        if action == "accept":
+            learn.accept(acc)
+        elif action == "reject":
+            learn.reject(acc)
+        else:
+            learn.revert(acc, action.split("-")[1])
+    finally:
+        acc.close_db()
+    return 200, "ok"
+
+
 SESSION_COOKIE = "tb_session"
 SESSION_DAYS = 30
 
@@ -1791,6 +1858,8 @@ def serve(db_path: str | None = None, start_equity: float = 10_000.0, fee_pct: f
                 return self._hyperliquid("relay-" + path.rsplit("/", 1)[1])
             if path.endswith("/hl/info") or path.endswith("/hl/exchange") or path.endswith("/hl/balances"):
                 return self._hyperliquid(path.rsplit("/", 1)[1])
+            if path.startswith("/learn/") and path.rsplit("/", 1)[1] in ("accept", "reject", "revert-paper", "revert-live"):
+                return self._learn(path.rsplit("/", 1)[1])
             if not password or path != "/login":
                 self.send_response(404)
                 self.end_headers()
@@ -1804,6 +1873,21 @@ def serve(db_path: str | None = None, start_equity: float = 10_000.0, fee_pct: f
                                                 "Path=/; HttpOnly; Secure; SameSite=Lax")
             time.sleep(1)  # bremst Durchprobieren von Passwörtern
             self._send(401, login_page(title, error=True, next_url=next_url))
+
+        def _learn(self, action: str):
+            if password and not self._authorized():
+                return self._redirect("/login")
+            jar = SimpleCookie()
+            try:
+                jar.load(self.headers.get("Cookie", ""))
+            except Exception:
+                pass
+            wallet = jar["hl_addr"].value if "hl_addr" in jar else None
+            code, msg = learn_action(action, bots[0].db_path, live_db, wallet)
+            if code != 200:
+                return self._send(code, _page(title, "overview", f'<section class="card"><p style="margin:0">{html.escape(msg)}</p>'
+                                                                 '<p><a href="/">Zurück zur Übersicht</a></p></section>'))
+            self._redirect("/")
 
         def _hyperliquid(self, kind: str):
             import json

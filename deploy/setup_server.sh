@@ -54,6 +54,7 @@ echo "==> Dienste"
 cp "$APP/deploy/tradingbot.service" /etc/systemd/system/
 cp "$APP/deploy/tradingbot-dashboard.service" /etc/systemd/system/
 cp "$APP/deploy/tradingbot-gold.service" /etc/systemd/system/
+cp "$APP/deploy/tradingbot-learn.service" "$APP/deploy/tradingbot-learn.timer" /etc/systemd/system/
 # Früher hatte der Gold-Bot ein eigenes Dashboard; jetzt ist er im gemeinsamen Dashboard
 if [ -f /etc/systemd/system/tradingbot-gold-dashboard.service ]; then
   systemctl disable --now tradingbot-gold-dashboard || true
@@ -62,6 +63,7 @@ fi
 systemctl daemon-reload
 systemctl enable --now tradingbot tradingbot-dashboard tradingbot-gold
 systemctl restart tradingbot tradingbot-dashboard tradingbot-gold
+systemctl enable --now tradingbot-learn.timer
 
 echo "==> HTTPS über sslip.io"
 IP="$(curl -4 -s https://ifconfig.me || hostname -I | awk '{print $1}')"
@@ -94,3 +96,4 @@ echo
 echo "Nützlich:   journalctl -u tradingbot -f     (Live-Protokoll, Strg+C beendet)"
 echo "            systemctl restart tradingbot    (nach Änderungen an config.yaml)"
 echo "            journalctl -u tradingbot-gold -f   (Protokoll des Gold-Bots)"
+echo "            journalctl -u tradingbot-learn     (Selbst lernen, läuft täglich 03:30 UTC)"

@@ -1,0 +1,12 @@
+[Unit]
+Description=Trading-Bot: selbst lernen (Varianten testen, Übungskonto anpassen, Echtgeld vorschlagen)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=bot
+WorkingDirectory=/opt/trading-bot
+EnvironmentFile=/etc/tradingbot.env
+ExecStart=/opt/trading-bot/.venv/bin/python -m tradingbot learn
+Nice=10

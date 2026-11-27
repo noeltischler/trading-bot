@@ -1,4 +1,4 @@
-"""Kommandozeile:  python -m tradingbot fetch | backtest | optimize | run | status | dashboard | verify | news | telegram"""
+"""Kommandozeile:  python -m tradingbot fetch | backtest | optimize | run | status | dashboard | verify | news | telegram | learn"""
 
 from __future__ import annotations
 
@@ -147,7 +147,31 @@ def cmd_run(args) -> int:
     account = PaperAccount(cfg.paper_database, cfg.start_equity, cfg.fee_pct)
     from tradingbot.hyperliquid import LiveAccount
     live = LiveAccount(cfg.live_database)  # tut nichts, bis Echtgeld im Dashboard eingeschaltet ist
-    run_forever(cfg, _market(cfg.exchange), account, chart=CandleStore(cfg.paper_database), live=live)
+    run_forever(cfg, _market(cfg.exchange), account, chart=CandleStore(cfg.paper_database), live=live,
+                learning=Path(args.config).stem == "config")  # Selbst-Lernen nur für den Krypto-Bot
+    return 0
+
+
+def cmd_learn(args) -> int:
+    """Selbst lernen (täglich per Zeitplan): Echtgeld-Vorschlag prüfen, einmal pro Woche Varianten testen."""
+    from tradingbot import learn, notify
+    from tradingbot.paper import PaperAccount
+
+    cfg = load_config(args.config)
+    account = PaperAccount(cfg.paper_database, cfg.start_equity, cfg.fee_pct)
+
+    def frames():
+        print(f"Lade Kurse des letzten Jahres ({len(cfg.symbols)} Coins, {cfg.timeframe}) ...", flush=True)
+        return learn.load_frames(cfg)
+
+    try:
+        out = learn.daily(cfg, account, frames, force=args.force, notify_fn=notify.send if cfg.notify else None)
+        for line in out or ["Heute nichts zu tun (Wochen-Prüfung erst wieder in ein paar Tagen)."]:
+            print(line)
+        print("Übungskonto: " + learn.effective_label(cfg, account, "paper"))
+        print("Echtgeld:    " + learn.effective_label(cfg, account, "live"))
+    finally:
+        account.close_db()
     return 0
 
 
@@ -334,13 +358,15 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_parser("telegram", help="Telegram-Benachrichtigungen einrichten und testen (als root auf dem Server)")
     mg = sub.add_parser("merge-account", help="Übungskonto mit einem anderen zusammenlegen, z. B. Gold ins Krypto-Konto")
     mg.add_argument("--into", default="config.yaml", help="Konfiguration mit dem gemeinsamen Konto")
+    ln = sub.add_parser("learn", help="Selbst lernen: Varianten testen, Übungskonto anpassen, Echtgeld vorschlagen")
+    ln.add_argument("--force", action="store_true", help="Wochen-Prüfung sofort machen")
     nw = sub.add_parser("news", help="Nachrichtenquellen abrufen und prüfen, welche erreichbar sind")
     nw.add_argument("--save", action="store_true", help="Schlagzeilen auch fürs Dashboard speichern")
     args = parser.parse_args(argv)
 
     commands = {"fetch": cmd_fetch, "backtest": cmd_backtest, "optimize": cmd_optimize, "run": cmd_run, "status": cmd_status,
                 "dashboard": cmd_dashboard, "verify": cmd_verify, "news": cmd_news,
-                "telegram": cmd_telegram, "merge-account": cmd_merge_account}
+                "telegram": cmd_telegram, "merge-account": cmd_merge_account, "learn": cmd_learn}
     try:
         return commands[args.command](args)
     except (FileNotFoundError, ValueError) as exc:

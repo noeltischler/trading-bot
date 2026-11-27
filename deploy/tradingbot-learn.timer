@@ -1,0 +1,9 @@
+[Unit]
+Description=Trading-Bot: täglich selbst lernen (Wochen-Prüfung alle 7 Tage)
+
+[Timer]
+OnCalendar=*-*-* 03:30:00 UTC
+Persistent=true
+
+[Install]
+WantedBy=timers.target
