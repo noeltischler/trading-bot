@@ -199,6 +199,15 @@ def live_round(cfg: Config, market, live, notify_fn=None, fear_greed=fear_greed_
     live.address = live.get_state("live:account") or live.address
     if live.get_state("live:start_equity") is None:
         live.set_state("live:start_equity", f"{live.balance:.2f}")
+    try:
+        moved = live.book_transfers()
+        if moved:
+            log.info("Echtgeld: %+.2f $ ein-/ausgezahlt, Startkapital jetzt %s", moved, live.get_state("live:start_equity"))
+            tell("Einzahlung erkannt" if moved > 0 else "Auszahlung erkannt",
+                 f"{moved:+.2f} $, Gewinn wird jetzt auf {float(live.get_state('live:start_equity')):.2f} $ Eigenkapital gerechnet.",
+                 ["moneybag"])
+    except Exception:
+        log.exception("Echtgeld: Ein-/Auszahlungen konnten nicht abgerufen werden")
     for coin, pos, price, pnl in live.sync(cfg.symbols):
         log.info("Echtgeld %s %s an der Börse gestoppt bei %.4f, Ergebnis %+.2f", coin, SIDE_NAME[pos.side], price, pnl)
         tell(*notify.closed_text(coin, pos.side == LONG, price, pnl, "stop", live.balance))
