@@ -261,6 +261,62 @@ class LiveAccount(PaperAccount):
                 done.append((coin, pos, price, pnl))
         return done
 
+    # -- Ein- und Auszahlungen
+    def _transfer_amount(self, delta: dict) -> float:
+        """Wie viel USDC eine Buchung dem Perps-Konto zu- (+) oder abführt (−)."""
+        kind, me = delta.get("type"), (self.address or "").lower()
+        amount = abs(float(delta.get("usdc") or delta.get("usdcValue") or delta.get("amount") or 0))
+        if kind == "deposit":
+            return amount
+        if kind == "withdraw":
+            return -amount
+        if kind == "accountClassTransfer":
+            return amount if delta.get("toPerp") else -amount
+        if kind in ("send", "internalTransfer"):
+            if delta.get("token") not in (None, "USDC"):
+                return 0.0
+            src, dst = str(delta.get("user", "")).lower(), str(delta.get("destination", "")).lower()
+            src_perp = delta.get("sourceDex", "") == ""
+            dst_perp = delta.get("destinationDex", "") == ""
+            if src == dst == me:  # eigene Umbuchung zwischen Spot und Perps
+                return amount if dst_perp and not src_perp else -amount if src_perp and not dst_perp else 0.0
+            if dst == me and dst_perp:
+                return amount
+            if src == me and src_perp:
+                return -amount
+        return 0.0
+
+    def book_transfers(self) -> float:
+        """Neue Ein-/Auszahlungen seit dem letzten Blick ins Startkapital übernehmen,
+        damit der Gewinn in Prozent sich auf das eingezahlte Geld bezieht.
+        Gibt die Summe der neu verbuchten Beträge zurück."""
+        raw = self.get_state("live:ledger_ms")
+        if raw is None:
+            # Erster Lauf: alles vor dem ersten Echtgeld-Trade gehört schon zum Startkapital
+            times = [t.opened_at for t in self.trades()] + [p.opened_at for p in self.positions().values()]
+            start_ms = int(min(times) * 1000) if times else int(time.time() * 1000)
+            with self.conn:
+                self.conn.execute("INSERT OR IGNORE INTO state (key, value) VALUES ('live:ledger_ms', ?)", (str(start_ms),))
+            raw = self.get_state("live:ledger_ms")
+        rows = self.client.info.post("/info", {"type": "userNonFundingLedgerUpdates",
+                                               "user": self.address, "startTime": int(raw) + 1}) or []
+        total = 0.0
+        # Krypto- und Gold-Bot teilen sich live.db: nur buchen, was nach dem gespeicherten Zeitpunkt liegt
+        with self.conn:
+            self.conn.execute("BEGIN IMMEDIATE")
+            since = int(self.conn.execute("SELECT value FROM state WHERE key = 'live:ledger_ms'").fetchone()[0])
+            new = [r for r in rows if int(r.get("time", 0)) > since]
+            if new:
+                total = sum(self._transfer_amount(r.get("delta") or {}) for r in new)
+                last = max(int(r["time"]) for r in new)
+                self.conn.execute("UPDATE state SET value = ? WHERE key = 'live:ledger_ms'", (str(last),))
+                if total:
+                    cur = self.conn.execute("SELECT value FROM state WHERE key = 'live:start_equity'").fetchone()
+                    base = float(cur[0]) if cur else self.balance - total
+                    self.conn.execute("INSERT OR REPLACE INTO state (key, value) VALUES ('live:start_equity', ?)",
+                                      (f"{base + total:.2f}",))
+        return total
+
     def close_all(self, reason: str = "notaus") -> list[tuple[str, float]]:
         out = []
         for coin in list(self.positions()):

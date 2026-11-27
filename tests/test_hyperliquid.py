@@ -210,3 +210,28 @@ def test_dashboard_echtgeld_view_reads_live_trades(tmp_path):
     assert "BTC · 4h-Kerzen" in page
     page, _ = page_for(bots, bots[0], "/", {})
     assert "Live · Übungskonto" in page and "Marktlage" in page
+
+
+def test_deposits_raise_start_equity_once(tmp_path):
+    me = "0x" + "1" * 40
+    ex = FakeExchange(value=100.0)
+    ledger = []
+    ex.info.post = lambda path, body: [r for r in ledger if r["time"] >= body["startTime"]]
+    acc = LiveAccount(tmp_path / "live.db", client=ex, account_address=me)
+    acc.set_state("live:start_equity", "100.00")
+    acc.open(Position.open("ETH", LONG, 100.0, 100.0, 0.75, 3.0, 1_000))  # erster Trade bei t=1000 s
+    ledger += [
+        {"time": 500_000, "delta": {"type": "deposit", "usdc": "100"}},  # vor dem Start: gehört zum Startkapital
+        {"time": 2_000_000, "delta": {"type": "send", "user": "0x" + "9" * 40, "destination": me, "usdc": "100",
+                                      "token": "USDC", "sourceDex": "", "destinationDex": ""}},  # Relay-Einzahlung
+        {"time": 3_000_000, "delta": {"type": "withdraw", "usdc": "20", "fee": "1"}},
+        {"time": 3_500_000, "delta": {"type": "spotTransfer", "usdc": "5"}},  # Spot: zählt nicht
+    ]
+    assert acc.book_transfers() == 80.0
+    assert acc.get_state("live:start_equity") == "180.00"
+    # zweiter Bot auf derselben Datenbank bucht nichts doppelt
+    other = LiveAccount(tmp_path / "live.db", client=ex, account_address=me)
+    assert other.book_transfers() == 0.0 and acc.book_transfers() == 0.0
+    assert other.get_state("live:start_equity") == "180.00"
+    ledger.append({"time": 4_000_000, "delta": {"type": "accountClassTransfer", "usdc": "10", "toPerp": True}})
+    assert acc.book_transfers() == 10.0 and acc.get_state("live:start_equity") == "190.00"
